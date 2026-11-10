@@ -151,6 +151,14 @@ body.drag::after { content: "Drop the file to import it"; position: fixed; inset
   #chart { min-height: 340px; flex: none; height: 380px; }
 }
 [hidden] { display: none !important; }
+.sheettabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--sunken); }
+.sheettabs:empty { display: none; }
+.sheettabs button[role="tab"] { border: 1px solid transparent; border-bottom: 0; background: none; padding: 6px 12px; cursor: pointer; font: 600 13px var(--body); color: var(--muted); border-radius: 6px 6px 0 0; white-space: nowrap; margin-bottom: -1px; }
+.sheettabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.sheettabs .add { border: 0; background: none; color: var(--accent); font: 500 13px var(--body); padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+.sheettabs .sp { flex: 1; }
+.sheettabs .iconbtn { margin-bottom: 4px; white-space: nowrap; }
+.dlginput { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 6px 8px; font-size: 14px; color: var(--ink); }
 .who { font-size: 12px; color: var(--muted); }
 .authcard { align-self: start; max-width: 480px; width: calc(100% - 32px); margin: 40px auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
 .authcard[hidden] { display: none; }
@@ -190,6 +198,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 
 <main>
   <section class="pane" aria-label="Worksheet">
+    <nav class="sheettabs" id="sheetTabs" role="tablist" aria-label="Sheets in this sample"></nav>
     <div class="panebar">
       <span class="grow" id="dims"></span>
       <label class="check"><input type="checkbox" id="copyHeaders" checked> with headers</label>
@@ -299,6 +308,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <dialog id="dlg">
   <h2 id="dlgTitle"></h2>
   <p class="note" id="dlgText"></p>
+  <input type="text" id="dlgInput" class="dlginput" hidden autocomplete="off">
   <textarea id="dlgArea" spellcheck="false"></textarea>
   <div class="row" id="dlgBtns"></div>
 </dialog>

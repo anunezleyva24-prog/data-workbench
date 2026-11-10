@@ -24,7 +24,8 @@
   function openDialog(o) {
     $("dlgTitle").textContent = o.title;
     $("dlgText").textContent = o.text || "";
-    const a = $("dlgArea");
+    const a = $("dlgArea"), inp = $("dlgInput");
+    inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || "";
     a.hidden = o.area === undefined;
     a.value = o.area || ""; a.readOnly = !!o.readonly; a.placeholder = o.placeholder || "";
     const b = $("dlgBtns");
@@ -32,11 +33,12 @@
     (o.actions || []).concat([{ label: o.closeLabel || "Cancel" }]).forEach((act) => {
       const btn = document.createElement("button");
       btn.type = "button"; btn.className = "btn" + (act.primary ? " primary" : ""); btn.textContent = act.label;
-      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(a.value); });
+      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(o.input !== undefined ? inp.value : a.value); });
       b.appendChild(btn);
     });
     $("dlg").showModal();
     if (!a.hidden) { a.focus(); if (o.readonly) a.select(); }
+    if (!inp.hidden) { inp.focus(); inp.select(); inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); b.querySelector(".primary").click(); } }; }
   }
   async function copyText(text, what) {
     try { await navigator.clipboard.writeText(text); toast(what + " copied."); return; } catch (e) { /* fall through */ }
@@ -685,8 +687,21 @@
     const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
     r.infoTitles = fix(r.infoTitles, (k) => "Info " + (k + 1)); r.procTitles = fix(r.procTitles, (k) => "Process " + (k + 1));
     r.samples = (Array.isArray(r.samples) ? r.samples : []).filter((s) => s && s.id);
-    r.samples.forEach((s) => { s.info = fix(s.info, () => "").map(String); s.proc = fix(s.proc, () => false).map(Boolean); });
+    r.samples.forEach(normSample);
     return r;
+  }
+  function normSample(s) {
+    const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
+    s.info = fix(s.info, () => "").map(String); s.proc = fix(s.proc, () => false).map(Boolean);
+    s.sheets = (Array.isArray(s.sheets) ? s.sheets : []).filter((h) => h && h.id);
+    if (!s.sheets.length) s.sheets = [{ id: "main", name: "Data", rows: s.rows || 0, cols: s.cols || 0 }];
+    return s;
+  }
+  const sheetPath = (sm, sh) => (sh.id === "main" ? "datasets/" + sm.id : "datasets/" + sm.id + "/" + sh.id);
+  function sheetSummary(sm) {
+    if (sm.sheets.length > 1) return sm.sheets.length + " sheets";
+    const h = sm.sheets[0];
+    return h.rows ? h.rows + " × " + h.cols : "empty";
   }
   function saveRegistry() { if (!Store.remote) save("lab/registry", JSON.parse(JSON.stringify(R))); }
   // Online, each sample is its own row and the column titles are another, so people editing different samples never overwrite each other.
@@ -716,7 +731,7 @@
       h += '<tr><th class="rn">' + (i + 1) + "</th>";
       sm.info.forEach((v, k) => { h += '<td><input type="text" id="si' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '" value="' + esc(v) + '" aria-label="' + esc(R.infoTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       sm.proc.forEach((v, k) => { h += '<td class="ck"><input type="checkbox" id="sp' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '"' + (v ? " checked" : "") + ' aria-label="' + esc(R.procTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
-      h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + (sm.rows ? sm.rows + " × " + sm.cols : "empty") + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
+      h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + sheetSummary(sm) + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
     });
     if (!R.samples.length) h += '<tr><td colspan="' + (2 * NCOL + 3) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
     $("reg").innerHTML = h + "</tbody>";
@@ -737,14 +752,14 @@
         R.samples = R.samples.filter((s) => s !== sm); renderRegistry(); saveRegistry();
         if (!Store.broken) {
           if (Store.remote) Store.del("samples/" + sm.id).catch(() => setState("The sample could not be deleted online. Refresh and try again.", true));
-          Store.del("datasets/" + sm.id).catch(() => {});
+          sm.sheets.forEach((h) => Store.del(sheetPath(sm, h)).catch(() => {}));
         }
       } }] });
     }
   });
   $("btnAddSample").addEventListener("click", () => {
     if (!R) return;
-    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0 };
+    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
     R.samples.push(sm);
     renderRegistry(); saveSample(sm);
     const el = $("si" + (R.samples.length - 1) + "_0");
@@ -763,17 +778,76 @@
     if (j === savedJson) return;
     savedJson = j;
     if (j.length > 250000) return setState("Not saved: this table is too large to store (about 20,000 values at most). It stays here until you leave the page.", true);
-    save("datasets/" + cur.id, JSON.parse(j));
+    save(sheetPath(cur, curSheet), JSON.parse(j));
     const filled = S.cols.some((c) => c.values.some((v) => v !== null));
-    cur.rows = filled ? S.n : 0; cur.cols = filled ? S.cols.length : 0;
-    saveSample(cur);
+    const rows = filled ? S.n : 0, ncols = filled ? S.cols.length : 0;
+    if (curSheet.rows !== rows || curSheet.cols !== ncols) {
+      curSheet.rows = rows; curSheet.cols = ncols;
+      if (curSheet.id === "main") { cur.rows = rows; cur.cols = ncols; }
+      saveSample(cur);
+    }
   }
   function showView(v) { document.body.classList.toggle("view-samples", v === "samples"); document.body.classList.toggle("view-bench", v === "bench"); }
+  let curSheet = null;
   async function openSample(sm) {
+    if (Store.remote) {
+      try { const fresh = await Store.get("samples/" + sm.id); if (fresh) { Object.assign(sm, normSample(fresh)); } } catch (e) { /* use what we have */ }
+    }
+    const ok = await openSheet(sm, sm.sheets[0]);
+    if (ok) { showView("bench"); showTab("plot"); }
+  }
+  function renderSheetTabs() {
+    const box = $("sheetTabs");
+    if (!cur) { box.innerHTML = ""; return; }
+    let h = "";
+    cur.sheets.forEach((sh, i) => {
+      const on = sh === curSheet;
+      h += '<button type="button" role="tab" aria-selected="' + on + '" data-sheet="' + i + '" title="' + (on ? "Double-click to rename" : "Open this sheet") + '">' + esc(sh.name || "Sheet " + (i + 1)) + "</button>";
+    });
+    h += '<button type="button" class="add" id="sheetAdd" title="Add a sheet to this sample">+ Sheet</button><span class="sp"></span>';
+    h += '<button type="button" class="iconbtn" id="sheetRename">Rename</button>';
+    if (cur.sheets.length > 1) h += '<button type="button" class="iconbtn" id="sheetDel">Delete sheet</button>';
+    box.innerHTML = h;
+  }
+  const SHEET_IDEAS = "e.g. Swelling, Rheology, Conductivity, FTIR, DSC";
+  $("sheetTabs").addEventListener("click", (e) => {
+    const t = e.target.closest("button");
+    if (!t || !cur) return;
+    if (t.dataset.sheet !== undefined) { const sh = cur.sheets[+t.dataset.sheet]; if (sh !== curSheet) openSheet(cur, sh); return; }
+    if (t.id === "sheetAdd") {
+      openDialog({ title: "New sheet in " + sampleName(cur), text: "Name it after what you measure, " + SHEET_IDEAS + ".", input: "", placeholder: "Sheet name", actions: [{ label: "Add sheet", primary: true, fn: (v) => {
+        const sh = { id: "h" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: v.trim() || "Sheet " + (cur.sheets.length + 1), rows: 0, cols: 0 };
+        cur.sheets.push(sh); saveSample(cur); openSheet(cur, sh);
+      } }] });
+    }
+    if (t.id === "sheetRename") renameSheet();
+    if (t.id === "sheetDel") {
+      const sh = curSheet;
+      openDialog({ title: "Delete sheet " + sh.name + "?", text: "This sheet's table, formulas and plot settings are removed for good. The sample's other sheets are kept.", actions: [{ label: "Delete sheet", primary: true, fn: () => {
+        clearTimeout(dirtyTimer);
+        const i = cur.sheets.indexOf(sh);
+        cur.sheets = cur.sheets.filter((x) => x !== sh);
+        if (sh.id === "main") { cur.rows = 0; cur.cols = 0; }
+        saveSample(cur);
+        Store.del(sheetPath(cur, sh)).catch(() => {});
+        curSheet = null;
+        openSheet(cur, cur.sheets[Math.max(0, i - 1)]);
+      } }] });
+    }
+  });
+  $("sheetTabs").addEventListener("dblclick", (e) => { const t = e.target.closest("[data-sheet]"); if (t && cur && cur.sheets[+t.dataset.sheet] === curSheet) renameSheet(); });
+  function renameSheet() {
+    const sh = curSheet;
+    openDialog({ title: "Rename sheet", text: SHEET_IDEAS.replace("e.g.", "For example:") + ".", input: sh.name, placeholder: "Sheet name", actions: [{ label: "Rename", primary: true, fn: (v) => {
+      if (!v.trim()) return;
+      sh.name = v.trim(); saveSample(cur); renderSheetTabs();
+    } }] });
+  }
+  async function openSheet(sm, sh) {
+    if (cur && curSheet) flush();
     let d = null;
-    try { d = await Store.get("datasets/" + sm.id); } catch (e) { return toast("The saved data for this sample could not be loaded. Try again."); }
+    try { d = await Store.get(sheetPath(sm, sh)); } catch (e) { toast("The saved data for this sheet could not be loaded. Try again."); return false; }
     cur = null;
-    showView("bench");
     $("viewTitle").textContent = sampleName(sm);
     if (d && Array.isArray(d.cols) && d.cols.length) {
       const n = d.n || 1;
@@ -781,15 +855,16 @@
       if (d.plot) Object.assign(S.plot, d.plot);
       if (d.stat) Object.assign(S.stat, d.stat);
       renderSide();
-    } else if (sm.example) loadExample();
-    else setData(emptyCols(), false);
-    showTab("plot");
+    } else if (sm.example && sh.id === "main") loadExample();
+    else { S.stat.type = "desc"; S.plot.type = "scatter"; setData(emptyCols(), false); }
     clearTimeout(dirtyTimer);
     savedJson = snapshot();
-    cur = sm;
+    cur = sm; curSheet = sh;
+    renderSheetTabs();
+    return true;
   }
   $("btnBack").addEventListener("click", () => {
-    flush(); cur = null;
+    flush(); cur = null; curSheet = null; renderSheetTabs();
     $("viewTitle").textContent = "Samples";
     showView("samples"); renderRegistry();
     if (Store.remote) refreshRegistry(true);
