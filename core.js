@@ -511,6 +511,44 @@
     return L.join("\n");
   };
 
+  /* Average several curves into one. Each curve is { x: [], y: [] }.
+     If every curve has the same X values, Y is averaged at each X. Otherwise each curve is
+     linearly interpolated onto the first curve's X values, over the range all curves share. */
+  C.mergeCurves = function (curves) {
+    const cs = curves.map((c) => {
+      const p = [];
+      for (let i = 0; i < c.x.length; i++) if (typeof c.x[i] === "number" && isFinite(c.x[i]) && typeof c.y[i] === "number" && isFinite(c.y[i])) p.push([c.x[i], c.y[i]]);
+      p.sort((a, b) => a[0] - b[0]);
+      return { x: p.map((q) => q[0]), y: p.map((q) => q[1]) };
+    }).filter((c) => c.x.length);
+    const out = { x: [], mean: [], sd: [], n: [], interpolated: false, curves: cs.length };
+    if (!cs.length) return out;
+    const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    const same = cs.every((c) => c.x.length === cs[0].x.length && c.x.every((v, i) => near(v, cs[0].x[i])));
+    let grid, cols;
+    if (same) { grid = cs[0].x.slice(); cols = cs.map((c) => c.y); }
+    else {
+      out.interpolated = true;
+      const lo = Math.max.apply(null, cs.map((c) => c.x[0])), hi = Math.min.apply(null, cs.map((c) => c.x[c.x.length - 1]));
+      grid = cs[0].x.filter((v, i, a) => v >= lo && v <= hi && (i === 0 || !near(v, a[i - 1])));
+      const interp = (c, v) => {
+        let a = 0, b = c.x.length - 1;
+        if (near(v, c.x[a])) return c.y[a];
+        if (near(v, c.x[b])) return c.y[b];
+        while (b - a > 1) { const m = (a + b) >> 1; if (c.x[m] <= v) a = m; else b = m; }
+        const dx = c.x[b] - c.x[a];
+        return dx === 0 ? c.y[a] : c.y[a] + ((c.y[b] - c.y[a]) * (v - c.x[a])) / dx;
+      };
+      cols = cs.map((c) => grid.map((v) => interp(c, v)));
+    }
+    grid.forEach((v, i) => {
+      const ys = cols.map((c) => c[i]), n = ys.length, m = ys.reduce((a, b) => a + b, 0) / n;
+      const sd = n > 1 ? Math.sqrt(ys.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1)) : 0;
+      out.x.push(v); out.mean.push(m); out.sd.push(sd); out.n.push(n);
+    });
+    return out;
+  };
+
   if (typeof module !== "undefined" && module.exports) module.exports = C;
   else root.Core = C;
 })(typeof window !== "undefined" ? window : globalThis);

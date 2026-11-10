@@ -46,6 +46,14 @@ h1 { font: 600 20px/1.1 var(--display); letter-spacing: .01em; margin: 0; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.small { padding: 3px 9px; font-size: 13px; }
 .view-samples .bench-only, .view-samples main, .view-bench .samples-only, .view-bench #samplesView { display: none !important; }
+.view-combine .samples-only, .view-combine .bench-only, .view-combine main, .view-combine #samplesView { display: none !important; }
+.view-combine #btnBack { display: inline-flex !important; }
+body:not(.view-combine) #combineView { display: none; }
+#combineView { margin: 0 16px 16px; }
+#cChart { position: relative; flex: 1; min-height: 340px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+#cChartIn { position: absolute; inset: 0; }
+.reg td.sel, .reg th.sel { min-width: 0; text-align: center; padding: 2px 8px; }
+.reg td.sel input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
 #samplesView { margin: 0 16px 16px; }
 .state { font-size: 12px; color: var(--muted); }
 .state.bad { color: var(--bad); }
@@ -180,6 +188,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
     <span class="who samples-only" id="whoAmI" hidden></span>
     <button class="btn samples-only" id="btnRefresh" type="button" hidden>Refresh</button>
     <button class="btn samples-only" id="btnSignOut" type="button" hidden>Sign out</button>
+    <button class="btn samples-only" id="btnCombine" type="button" title="Tick samples in the list, then plot them together">Plot selected</button>
     <button class="btn primary samples-only" id="btnAddSample" type="button">+ Add sample</button>
     <label class="btn primary bench-only" for="fileInput">Import file</label>
     <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.dat,.xlsx,.xls,.ods" hidden>
@@ -194,6 +203,42 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
     <span class="note">Every column title can be edited. Open a sample to import, analyse and plot its data.</span>
   </div>
   <div class="tablewrap"><table class="grid reg" id="reg"></table></div>
+</section>
+
+<section class="pane" id="combineView" aria-label="Combined plot of several samples">
+  <div class="tabpanel">
+    <div class="controls">
+      <label class="field">Function
+        <select id="cFn">
+          <option value="overlap">Overlap: each sample as its own curve</option>
+          <option value="merge">Merge: average the samples</option>
+        </select></label>
+      <label class="field" id="cGroupWrap">Average
+        <select id="cGroup"></select></label>
+      <label class="field">Sheet <select id="cSheet"></select></label>
+      <label class="field">X column <select id="cX"></select></label>
+      <label class="field">Y column <select id="cY"></select></label>
+      <label class="field">Type
+        <select id="cType">
+          <option value="linesym">Line + symbol</option><option value="scatter">Scatter</option><option value="line">Line</option>
+        </select></label>
+      <label class="check"><input type="checkbox" id="cLogX"> log X</label>
+      <label class="check"><input type="checkbox" id="cLogY"> log Y</label>
+      <label class="check" id="cSDWrap"><input type="checkbox" id="cSD" checked> error bars (± SD)</label>
+      <label class="check" id="cIndWrap"><input type="checkbox" id="cInd"> also show each sample</label>
+    </div>
+    <p class="note" id="cNote" style="max-width:none"></p>
+    <div id="cChart" role="img" aria-label="Combined plot of the selected samples"><div id="cChartIn"></div></div>
+    <div class="controls">
+      <label class="field wide">Title <input type="text" id="cTitle" placeholder="none"></label>
+      <label class="field wide">X label <input type="text" id="cXL" placeholder="from column name"></label>
+      <label class="field wide">Y label <input type="text" id="cYL" placeholder="from column name"></label>
+      <button class="btn small" id="cCopyData" type="button">Copy plotted data</button>
+      <button class="btn small" id="cCopyImg" type="button">Copy image</button>
+      <button class="btn small save-only" id="cPng" type="button">Save PNG</button>
+      <button class="btn small save-only" id="cSvg" type="button">Save SVG</button>
+    </div>
+  </div>
 </section>
 
 <main>
@@ -328,8 +373,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="lib/plotly.min.js"></script>
 <script src="lib/xlsx.full.min.js"></script>
 <script src="lib/supabase.js"></script>
-<script src="config.js?v=3"></script>
-<script src="core.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=4"></script>
+<script src="core.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

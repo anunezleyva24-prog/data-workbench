@@ -384,8 +384,8 @@
     renderPlotControls(); drawPlot(); renderOrigin();
   });
   ["pTitle", "pXL", "pYL", "pYR"].forEach((id) => $(id).addEventListener("input", () => { readPlotControls(); drawPlot(); renderOrigin(); }));
-  async function plotImage(format) {
-    const el = $("chartIn");
+  async function plotImage(format, id) {
+    const el = $(id || "chartIn");
     return window.Plotly.toImage(el, { format: format, width: el.clientWidth, height: el.clientHeight, scale: format === "png" ? 3 : 1 });
   }
   function dataUrlToBlob(url) {
@@ -596,7 +596,7 @@
   new MutationObserver(drawPlot).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   /* ---------- example data: first-order decay, three replicate runs ---------- */
-  function loadExample() {
+  function exampleCols() {
     const t = [], runs = [[], [], []], A = [1.02, 0.97, 1.05], tau = [7.8, 8.4, 8.0];
     for (let i = 0; i <= 15; i++) {
       t.push(i * 2);
@@ -604,7 +604,10 @@
     }
     const cols = [{ name: "Time", unit: "min", formula: null, values: t }].concat(runs.map((r, k) => ({ name: "Run " + (k + 1), unit: "a.u.", formula: null, values: r })));
     cols.push({ name: "Mean", unit: "a.u.", formula: "(B + C + D) / 3", values: [] });
-    setData(cols, true);
+    return cols;
+  }
+  function loadExample() {
+    setData(exampleCols(), true);
     S.plot.x = 0; S.plot.ys = [4];
     Object.assign(S.stat, { type: "nl", x: 0, y: 4, model: "expdec", groups: [1, 2, 3] });
     renderSide();
@@ -723,23 +726,25 @@
   async function loadRegistry() { return Store.remote ? loadRemoteRegistry() : Store.get("lab/registry"); }
   function renderRegistry() {
     if (!R) return;
-    let h = '<thead><tr class="groups"><th></th><th colspan="' + NCOL + '">Sample information</th><th colspan="' + NCOL + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th>';
+    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + NCOL + '">Sample information</th><th colspan="' + NCOL + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
     R.infoTitles.forEach((t, k) => { h += '<th><input type="text" id="it' + k + '" data-title="info" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of information column ' + (k + 1) + '"></th>'; });
     R.procTitles.forEach((t, k) => { h += '<th class="ck"><input type="text" id="pt' + k + '" data-title="proc" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of process column ' + (k + 1) + '"></th>'; });
     h += '<th class="narrow">Measurements</th><th class="narrow"></th></tr></thead><tbody>';
     R.samples.forEach((sm, i) => {
-      h += '<tr><th class="rn">' + (i + 1) + "</th>";
+      h += '<tr><th class="rn">' + (i + 1) + '</th><td class="sel"><input type="checkbox" data-sel="' + i + '"' + (SEL.has(sm.id) ? " checked" : "") + ' aria-label="Select sample ' + (i + 1) + ' for a combined plot"></td>';
       sm.info.forEach((v, k) => { h += '<td><input type="text" id="si' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '" value="' + esc(v) + '" aria-label="' + esc(R.infoTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       sm.proc.forEach((v, k) => { h += '<td class="ck"><input type="checkbox" id="sp' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '"' + (v ? " checked" : "") + ' aria-label="' + esc(R.procTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + sheetSummary(sm) + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
     });
-    if (!R.samples.length) h += '<tr><td colspan="' + (2 * NCOL + 3) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
+    if (!R.samples.length) h += '<tr><td colspan="' + (2 * NCOL + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
     $("reg").innerHTML = h + "</tbody>";
     const n = R.samples.length;
     $("regCount").textContent = n + (n === 1 ? " sample" : " samples");
+    updateCombineBtn();
   }
   $("reg").addEventListener("change", (e) => {
     const t = e.target, d = t.dataset;
+    if (d.sel !== undefined) { const sm = R.samples[+d.sel]; if (t.checked) SEL.add(sm.id); else SEL.delete(sm.id); updateCombineBtn(); return; }
     if (d.title) { R[d.title === "info" ? "infoTitles" : "procTitles"][+d.k] = t.value.trim() || (d.title === "info" ? "Info " : "Process ") + (+d.k + 1); renderRegistry(); saveTitles(); }
     else if (d.s !== undefined) { const sm = R.samples[+d.s]; if (t.type === "checkbox") sm.proc[+d.k] = t.checked; else sm.info[+d.k] = t.value; saveSample(sm); }
   });
@@ -787,7 +792,7 @@
       saveSample(cur);
     }
   }
-  function showView(v) { document.body.classList.toggle("view-samples", v === "samples"); document.body.classList.toggle("view-bench", v === "bench"); }
+  function showView(v) { ["samples", "bench", "combine"].forEach((k) => document.body.classList.toggle("view-" + k, v === k)); }
   let curSheet = null;
   async function openSample(sm) {
     if (Store.remote) {
@@ -870,6 +875,167 @@
     if (Store.remote) refreshRegistry(true);
   });
   window.addEventListener("pagehide", flush);
+
+  /* ---------- combined plot: several samples in one graph ---------- */
+  const SEL = new Set();
+  const CMP = { fn: "overlap", group: "all", sheet: "", x: "", y: "", type: "linesym", logx: false, logy: false, sd: true, ind: false, title: "", xl: "", yl: "", samples: [], sets: [], missing: [], built: null, token: 0 };
+  const key = (s) => String(s || "").trim().toLowerCase();
+  function updateCombineBtn() {
+    if (!R) return;
+    const ids = new Set(R.samples.map((s) => s.id));
+    SEL.forEach((id) => { if (!ids.has(id)) SEL.delete(id); });
+    $("btnCombine").textContent = "Plot selected" + (SEL.size ? " (" + SEL.size + ")" : "");
+  }
+  $("btnCombine").addEventListener("click", async () => {
+    if (!R) return;
+    CMP.samples = R.samples.filter((s) => SEL.has(s.id));
+    if (!CMP.samples.length) return toast("Tick the samples you want in the Plot column first.");
+    const names = sheetChoices();
+    if (!names.some((o) => key(o.name) === key(CMP.sheet))) CMP.sheet = names[0].name;
+    $("viewTitle").textContent = "Combined plot";
+    showView("combine");
+    await loadCombine();
+  });
+  function sheetChoices() {
+    const m = new Map();
+    CMP.samples.forEach((sm) => sm.sheets.forEach((h) => { const k = key(h.name); if (!m.has(k)) m.set(k, { name: h.name, count: 0 }); m.get(k).count++; }));
+    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+  }
+  async function loadCombine() {
+    const token = ++CMP.token, sets = [], missing = [];
+    $("cNote").textContent = "Loading the selected samples…";
+    for (const sm of CMP.samples) {
+      const sh = sm.sheets.find((h) => key(h.name) === key(CMP.sheet));
+      if (!sh) { missing.push(sampleName(sm) + " (no sheet named " + CMP.sheet + ")"); continue; }
+      let d = null;
+      try { d = await Store.get(sheetPath(sm, sh)); } catch (e) { missing.push(sampleName(sm) + " (could not be loaded)"); continue; }
+      let cols = null, n = 0;
+      if (d && Array.isArray(d.cols) && d.cols.length) {
+        n = d.n || 1;
+        cols = d.cols.map((c) => { const v = Array.isArray(c.values) ? c.values.slice() : []; while (v.length < n) v.push(null); return { name: String(c.name || ""), unit: c.unit || "", formula: c.formula || null, values: v }; });
+      } else if (sm.example && sh.id === "main") { cols = exampleCols(); n = Math.max.apply(null, cols.map((c) => c.values.length)); cols.forEach((c) => { while (c.values.length < n) c.values.push(null); }); }
+      if (!cols) { missing.push(sampleName(sm) + " (empty sheet)"); continue; }
+      C.recompute(cols, n);
+      sets.push({ sm: sm, cols: cols, n: n });
+    }
+    if (token !== CMP.token) return;
+    CMP.sets = sets; CMP.missing = missing;
+    const names = columnChoices();
+    if (CMP.x !== "#row" && !names.some((o) => key(o.name) === key(CMP.x))) CMP.x = names.length > 1 ? names[0].name : "#row";
+    if (!names.some((o) => key(o.name) === key(CMP.y))) { const y = names.find((o) => key(o.name) !== key(CMP.x)); CMP.y = y ? y.name : names.length ? names[0].name : ""; }
+    renderCombine();
+  }
+  function columnChoices() {
+    const m = new Map();
+    CMP.sets.forEach((st) => st.cols.forEach((c) => { if (!c.values.some((v) => typeof v === "number")) return; const k = key(c.name); if (!m.has(k)) m.set(k, { name: c.name, count: 0 }); m.get(k).count++; }));
+    return Array.from(m.values());
+  }
+  function buildCombine() {
+    const curves = [], skipped = [];
+    let xCol = null, yCol = null;
+    CMP.sets.forEach((st) => {
+      const xc = CMP.x === "#row" ? null : st.cols.find((c) => key(c.name) === key(CMP.x)), yc = st.cols.find((c) => key(c.name) === key(CMP.y));
+      if (!yc || (CMP.x !== "#row" && !xc)) { skipped.push(sampleName(st.sm) + " (no column named " + (!yc ? CMP.y : CMP.x) + ")"); return; }
+      const x = [], y = [];
+      for (let i = 0; i < st.n; i++) { const yv = yc.values[i], xv = xc ? xc.values[i] : i + 1; if (typeof yv === "number" && typeof xv === "number") { x.push(xv); y.push(yv); } }
+      if (!x.length) { skipped.push(sampleName(st.sm) + " (no numeric data in these columns)"); return; }
+      xCol = xCol || xc; yCol = yCol || yc;
+      curves.push({ name: sampleName(st.sm), sm: st.sm, x: x, y: y });
+    });
+    let series = [], interpolated = false;
+    if (CMP.fn === "overlap") series = curves.map((c) => ({ name: c.name, x: c.x, y: c.y }));
+    else {
+      const groups = new Map();
+      curves.forEach((c) => { const g = CMP.group === "all" ? "" : c.sm.info[+CMP.group].trim(); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(c); });
+      groups.forEach((list, g) => {
+        const m = C.mergeCurves(list);
+        interpolated = interpolated || m.interpolated;
+        const label = CMP.group === "all" ? "Mean of " + list.length + (list.length === 1 ? " sample" : " samples") : (g || "(blank)") + " (n = " + list.length + ")";
+        series.push({ name: label, x: m.x, y: m.mean, sd: m.sd, n: m.n, members: list });
+      });
+    }
+    return { series: series, skipped: skipped, curves: curves, interpolated: interpolated, xCol: xCol, yCol: yCol };
+  }
+  function renderCombine() {
+    const opt = (v, t, cur) => '<option value="' + esc(v) + '"' + (key(v) === key(cur) ? " selected" : "") + ">" + esc(t) + "</option>";
+    const total = CMP.samples.length;
+    $("cFn").value = CMP.fn;
+    $("cGroup").innerHTML = opt("all", "All selected samples into one curve", CMP.group) + R.infoTitles.map((t, k) => opt(String(k), "Samples with the same " + t, CMP.group)).join("");
+    $("cSheet").innerHTML = sheetChoices().map((o) => opt(o.name, o.name + (o.count < total ? " (" + o.count + " of " + total + " samples)" : ""), CMP.sheet)).join("");
+    const cols = columnChoices(), lab = (o) => o.name + (o.count < CMP.sets.length ? " (" + o.count + " of " + CMP.sets.length + ")" : "");
+    $("cX").innerHTML = opt("#row", "Row number", CMP.x) + cols.map((o) => opt(o.name, lab(o), CMP.x)).join("");
+    $("cY").innerHTML = cols.map((o) => opt(o.name, lab(o), CMP.y)).join("");
+    $("cType").value = CMP.type; $("cLogX").checked = CMP.logx; $("cLogY").checked = CMP.logy; $("cSD").checked = CMP.sd; $("cInd").checked = CMP.ind;
+    const merge = CMP.fn === "merge";
+    $("cGroupWrap").hidden = !merge; $("cSDWrap").hidden = !merge; $("cIndWrap").hidden = !merge;
+    $("cTitle").value = CMP.title; $("cXL").value = CMP.xl; $("cYL").value = CMP.yl;
+    drawCombine();
+  }
+  function drawCombine() {
+    const el = $("cChartIn");
+    if (!document.body.classList.contains("view-combine")) return;
+    if (!window.Plotly) { el.innerHTML = '<p class="note bad" style="padding:12px">The plotting library did not load. Check the connection and reload the page.</p>'; return; }
+    const B = (CMP.built = buildCombine());
+    const css = getComputedStyle(document.documentElement), tok = (n) => css.getPropertyValue(n).trim();
+    const surface = tok("--surface"), ink = tok("--ink"), muted = tok("--muted");
+    const mode = CMP.type === "scatter" ? "markers" : CMP.type === "line" ? "lines" : "lines+markers";
+    const traces = [];
+    B.series.forEach((sr, k) => {
+      const color = tok("--s" + ((k % 8) + 1));
+      if (sr.members && CMP.ind) sr.members.forEach((c) => traces.push({ type: "scatter", mode: "lines", x: c.x, y: c.y, name: c.name, showlegend: false, opacity: 0.45, line: { color: color, width: 1, dash: "dot" }, hovertemplate: "%{x}<br>%{y}<extra>" + esc(c.name) + "</extra>" }));
+      const tr = { type: "scatter", mode: mode, x: sr.x, y: sr.y, name: sr.name, marker: { color: color, size: 9, symbol: SYMBOLS[k % 8], line: { color: surface, width: 1.5 } }, line: { color: color, width: 2 }, hovertemplate: "%{x}<br><b>%{y:.5g}</b><extra>" + esc(sr.name) + "</extra>" };
+      if (sr.sd && CMP.sd && sr.members.length > 1) tr.error_y = { type: "data", array: sr.sd, visible: true, color: color, thickness: 1.2, width: 3 };
+      traces.push(tr);
+    });
+    const axis = (title, log) => ({ title: { text: title || "", font: { color: muted, size: 13 }, standoff: 8 }, type: log ? "log" : "-", gridcolor: tok("--grid"), linecolor: tok("--line"), showline: true, zeroline: false, ticks: "outside", tickcolor: tok("--line"), tickfont: { color: muted }, automargin: true });
+    const xl = CMP.xl || (CMP.x === "#row" ? "Row number" : B.xCol ? axisName(B.xCol) : CMP.x), yl = CMP.yl || (B.yCol ? axisName(B.yCol) : CMP.y);
+    const layout = {
+      paper_bgcolor: surface, plot_bgcolor: surface, font: { family: '"IBM Plex Sans", system-ui, sans-serif', color: ink, size: 13 },
+      margin: { l: 60, r: 18, t: CMP.title ? 48 : 30, b: 52 },
+      title: CMP.title ? { text: esc(CMP.title), font: { size: 16 }, x: 0.01, xanchor: "left" } : { text: "" },
+      xaxis: axis(esc(xl), CMP.logx), yaxis: axis(esc(yl), CMP.logy),
+      showlegend: true, legend: { orientation: "h", x: 0, y: 1.02, yanchor: "bottom", font: { color: muted } },
+      hovermode: "closest", hoverlabel: { bgcolor: surface, bordercolor: tok("--line"), font: { color: ink } },
+    };
+    if (!traces.length) layout.annotations = [{ text: "No data to plot for this sheet and these columns", showarrow: false, font: { color: muted, size: 14 } }];
+    const left = CMP.missing.concat(B.skipped);
+    let note = (CMP.fn === "merge" ? "Averaging " : "Showing ") + B.curves.length + " of " + CMP.samples.length + " selected samples: " + B.curves.map((c) => c.name).join(", ") + ".";
+    if (left.length) note += " Not included: " + left.join("; ") + ".";
+    if (CMP.fn === "merge" && B.interpolated) note += " The samples do not share the same X values, so each one is interpolated onto the X values of the first sample in its group, over the X range they all cover.";
+    if (CMP.fn === "merge" && CMP.sd && B.series.some((sr) => sr.members.length < 2)) note += " A curve from a single sample has no error bars.";
+    $("cNote").textContent = note;
+    window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage", "lasso2d", "select2d"] });
+    requestAnimationFrame(() => { try { window.Plotly.Plots.resize(el); } catch (e) { /* not drawn yet */ } });
+  }
+  function combineTable() {
+    const B = CMP.built || buildCombine(), heads = [], colsOut = [];
+    const xn = CMP.x === "#row" ? "Row" : CMP.x;
+    B.series.forEach((sr) => {
+      heads.push(xn, CMP.y + " - " + sr.name); colsOut.push(sr.x, sr.y);
+      if (sr.sd) { heads.push("SD - " + sr.name, "n - " + sr.name); colsOut.push(sr.sd, sr.n); }
+    });
+    const rows = Math.max.apply(null, colsOut.map((c) => c.length).concat([0])), lines = [heads.join("\t")];
+    for (let i = 0; i < rows; i++) lines.push(colsOut.map((c) => (i < c.length ? String(Number(c[i].toPrecision(10))) : "")).join("\t"));
+    return lines.join("\n");
+  }
+  $("combineView").addEventListener("change", (e) => {
+    const id = e.target.id, sheetBefore = CMP.sheet;
+    CMP.fn = $("cFn").value; CMP.group = $("cGroup").value; CMP.sheet = $("cSheet").value; CMP.x = $("cX").value; CMP.y = $("cY").value;
+    CMP.type = $("cType").value; CMP.logx = $("cLogX").checked; CMP.logy = $("cLogY").checked; CMP.sd = $("cSD").checked; CMP.ind = $("cInd").checked;
+    if (id === "cTitle" || id === "cXL" || id === "cYL") return;
+    if (CMP.sheet !== sheetBefore) loadCombine(); else renderCombine();
+  });
+  ["cTitle", "cXL", "cYL"].forEach((id) => $(id).addEventListener("input", () => { CMP.title = $("cTitle").value; CMP.xl = $("cXL").value; CMP.yl = $("cYL").value; drawCombine(); }));
+  $("cCopyData").addEventListener("click", () => copyText(combineTable(), "Plotted data"));
+  $("cPng").addEventListener("click", async () => { try { saveFile("combined_plot.png", dataUrlToBlob(await plotImage("png", "cChartIn"))); } catch (e) { toast("The plot could not be exported."); } });
+  $("cSvg").addEventListener("click", async () => { try { const u = await plotImage("svg", "cChartIn"); saveFile("combined_plot.svg", decodeURIComponent(u.slice(u.indexOf(",") + 1))); } catch (e) { toast("The plot could not be exported."); } });
+  $("cCopyImg").addEventListener("click", async () => {
+    try {
+      const blob = dataUrlToBlob(await plotImage("png", "cChartIn"));
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Plot image copied.");
+    } catch (e) { toast("Copying images is blocked here. Use Save PNG instead."); }
+  });
 
   async function refreshRegistry(quiet) {
     if (!Store.remote || Store.broken) return;
