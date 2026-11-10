@@ -609,21 +609,44 @@
   }
 
   /* ---------- storage: the artifact's database, or this browser as a fallback ---------- */
-  const Store = { db: null, local: false, broken: false };
+  const Store = { db: null, sb: null, remote: false, local: false, broken: false, email: "" };
+  const CFG = window.DW_CONFIG || {};
+  const sbErr = (error) => { const e = new Error(error.message || "Request failed"); e.code = error.code === "42501" ? "not_granted" : error.code; return e; };
   const timeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms))]);
   Store.init = async function () {
-    try { if (window.claude && typeof window.claude.use === "function") Store.db = await timeout(window.claude.use("db"), 11000, "timeout"); } catch (e) { Store.db = null; }
-    Store.local = !Store.db;
+    const inClaude = !!(window.claude && typeof window.claude.use === "function");
+    try { if (inClaude) Store.db = await timeout(window.claude.use("db"), 11000, "timeout"); } catch (e) { Store.db = null; }
+    if (!inClaude && CFG.supabaseUrl && CFG.supabaseKey && window.supabase) {
+      Store.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+      Store.remote = true;
+    }
+    Store.local = !Store.db && !Store.remote;
+  };
+  Store.list = async function (prefix) {
+    const { data, error } = await timeout(Store.sb.from("docs").select("path,data").like("path", prefix + "%"), 15000, "The saved data could not be reached.");
+    if (error) throw sbErr(error);
+    return data || [];
   };
   Store.get = async function (path) {
+    if (Store.remote) {
+      const { data, error } = await timeout(Store.sb.from("docs").select("data").eq("path", path).maybeSingle(), 15000, "The saved data could not be reached.");
+      if (error) throw sbErr(error);
+      return data ? data.data : null;
+    }
     if (Store.db) { const s = await timeout(Store.db.doc(path).get(), 10000, "The saved data could not be reached."); return s.exists ? JSON.parse(JSON.stringify(s.data())) : null; }
     try { const v = localStorage.getItem("dw:" + path); return v ? JSON.parse(v) : null; } catch (e) { return null; }
   };
   Store.set = async function (path, data) {
+    if (Store.remote) {
+      const { error } = await Store.sb.from("docs").upsert({ path: path, data: data, updated_at: new Date().toISOString(), updated_by: Store.email });
+      if (error) throw sbErr(error);
+      return;
+    }
     if (Store.db) return Store.db.doc(path).set(data);
     localStorage.setItem("dw:" + path, JSON.stringify(data));
   };
   Store.del = async function (path) {
+    if (Store.remote) { const { error } = await Store.sb.from("docs").delete().eq("path", path); if (error) throw sbErr(error); return; }
     if (Store.db) return Store.db.doc(path).delete();
     localStorage.removeItem("dw:" + path);
   };
@@ -639,7 +662,7 @@
     setState("Saving…");
     try {
       while (path in pend) { const d = pend[path]; delete pend[path]; await Store.set(path, d); }
-      setState(Store.local ? "Saved in this browser only" : "Saved");
+      setState(Store.local ? "Saved in this browser only" : Store.remote ? "Saved for everyone" : "Saved");
     } catch (e) {
       const code = e && e.code;
       setState(code === "quota_exceeded" ? "Not saved: the storage for this page is full." : code === "invalid_argument" || code === "not_granted" || code === "revoked" ? "Not saved: you cannot change this page's data, or the entry is too large." : "Not saved. Your last change is kept only until you leave this page.", true);
@@ -665,7 +688,24 @@
     r.samples.forEach((s) => { s.info = fix(s.info, () => "").map(String); s.proc = fix(s.proc, () => false).map(Boolean); });
     return r;
   }
-  function saveRegistry() { save("lab/registry", JSON.parse(JSON.stringify(R))); }
+  function saveRegistry() { if (!Store.remote) save("lab/registry", JSON.parse(JSON.stringify(R))); }
+  // Online, each sample is its own row and the column titles are another, so people editing different samples never overwrite each other.
+  function saveTitles() { if (Store.remote) save("lab/titles", { infoTitles: R.infoTitles.slice(), procTitles: R.procTitles.slice() }); else saveRegistry(); }
+  function saveSample(sm) { if (Store.remote) save("samples/" + sm.id, JSON.parse(JSON.stringify(sm))); else saveRegistry(); }
+  async function loadRemoteRegistry() {
+    const [titles, rows] = await Promise.all([Store.get("lab/titles"), Store.list("samples/")]);
+    const samples = rows.map((r) => r.data).filter((d) => d && d.id).sort((a, b) => (a.created || 0) - (b.created || 0));
+    if (!titles && !samples.length) {
+      const r = defaultRegistry();
+      r.samples[0].created = 0;
+      await Store.set("lab/titles", { infoTitles: r.infoTitles, procTitles: r.procTitles });
+      await Store.set("samples/example", r.samples[0]);
+      return r;
+    }
+    const d = defaultRegistry();
+    return { infoTitles: (titles && titles.infoTitles) || d.infoTitles, procTitles: (titles && titles.procTitles) || d.procTitles, samples: samples };
+  }
+  async function loadRegistry() { return Store.remote ? loadRemoteRegistry() : Store.get("lab/registry"); }
   function renderRegistry() {
     if (!R) return;
     let h = '<thead><tr class="groups"><th></th><th colspan="' + NCOL + '">Sample information</th><th colspan="' + NCOL + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th>';
@@ -685,10 +725,8 @@
   }
   $("reg").addEventListener("change", (e) => {
     const t = e.target, d = t.dataset;
-    if (d.title) { R[d.title === "info" ? "infoTitles" : "procTitles"][+d.k] = t.value.trim() || (d.title === "info" ? "Info " : "Process ") + (+d.k + 1); renderRegistry(); }
-    else if (d.s !== undefined) { const sm = R.samples[+d.s]; if (t.type === "checkbox") sm.proc[+d.k] = t.checked; else sm.info[+d.k] = t.value; }
-    else return;
-    saveRegistry();
+    if (d.title) { R[d.title === "info" ? "infoTitles" : "procTitles"][+d.k] = t.value.trim() || (d.title === "info" ? "Info " : "Process ") + (+d.k + 1); renderRegistry(); saveTitles(); }
+    else if (d.s !== undefined) { const sm = R.samples[+d.s]; if (t.type === "checkbox") sm.proc[+d.k] = t.checked; else sm.info[+d.k] = t.value; saveSample(sm); }
   });
   $("reg").addEventListener("click", (e) => {
     const o = e.target.closest("[data-open]"), x = e.target.closest("[data-del]");
@@ -697,14 +735,18 @@
       const sm = R.samples[+x.dataset.del];
       openDialog({ title: "Delete " + sampleName(sm) + "?", text: "The sample row and its measurement data are removed for good.", actions: [{ label: "Delete sample", primary: true, fn: () => {
         R.samples = R.samples.filter((s) => s !== sm); renderRegistry(); saveRegistry();
-        if (!Store.broken) Store.del("datasets/" + sm.id).catch(() => {});
+        if (!Store.broken) {
+          if (Store.remote) Store.del("samples/" + sm.id).catch(() => setState("The sample could not be deleted online. Refresh and try again.", true));
+          Store.del("datasets/" + sm.id).catch(() => {});
+        }
       } }] });
     }
   });
   $("btnAddSample").addEventListener("click", () => {
     if (!R) return;
-    R.samples.push({ id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0 });
-    renderRegistry(); saveRegistry();
+    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0 };
+    R.samples.push(sm);
+    renderRegistry(); saveSample(sm);
     const el = $("si" + (R.samples.length - 1) + "_0");
     if (el) { el.scrollIntoView({ block: "nearest" }); el.focus(); }
   });
@@ -724,7 +766,7 @@
     save("datasets/" + cur.id, JSON.parse(j));
     const filled = S.cols.some((c) => c.values.some((v) => v !== null));
     cur.rows = filled ? S.n : 0; cur.cols = filled ? S.cols.length : 0;
-    saveRegistry();
+    saveSample(cur);
   }
   function showView(v) { document.body.classList.toggle("view-samples", v === "samples"); document.body.classList.toggle("view-bench", v === "bench"); }
   async function openSample(sm) {
@@ -750,15 +792,74 @@
     flush(); cur = null;
     $("viewTitle").textContent = "Samples";
     showView("samples"); renderRegistry();
+    if (Store.remote) refreshRegistry(true);
   });
   window.addEventListener("pagehide", flush);
 
+  async function refreshRegistry(quiet) {
+    if (!Store.remote || Store.broken) return;
+    if (Object.keys(pend).length || Object.values(busy).some(Boolean)) { setTimeout(() => refreshRegistry(quiet), 800); return; }
+    try {
+      R = normalize(await loadRemoteRegistry());
+      if (!cur) renderRegistry();
+      if (!quiet) toast("Samples updated.");
+    } catch (e) { if (!quiet) toast("Could not refresh. Check your connection and try again."); }
+  }
+  $("btnRefresh").addEventListener("click", () => refreshRegistry(false));
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !cur) refreshRegistry(true); });
+
+  function showAuth(msg, signedInAs) {
+    document.body.classList.add("view-auth");
+    $("authView").hidden = false;
+    $("viewTitle").textContent = "Data Workbench";
+    $("authForm").hidden = !!signedInAs;
+    $("authAlt").hidden = !signedInAs;
+    $("authText").textContent = signedInAs
+      ? "You are signed in as " + signedInAs + ", but this email is not on the lab's member list. Ask the workbench owner to add it, then reload this page."
+      : "Enter your email and we'll send you a sign-in link. Only invited lab members can see the shared samples.";
+    $("authMsg").textContent = msg || "";
+  }
+  $("authForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("authEmail").value.trim();
+    if (!email) return;
+    $("authSend").disabled = true; $("authMsg").textContent = "Sending…";
+    const { error } = await Store.sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: location.origin + location.pathname } });
+    $("authSend").disabled = false;
+    $("authMsg").textContent = error
+      ? (/rate|seconds/i.test(error.message) ? "Too many sign-in emails were requested. Wait a few minutes and try again." : "The link could not be sent: " + error.message)
+      : "Check your inbox for an email from Supabase and click the link in it. You can close this tab.";
+  });
+  async function signOut() { try { await Store.sb.auth.signOut(); } catch (e) { /* ignore */ } location.reload(); }
+  $("btnSignOut").addEventListener("click", () => { flush(); signOut(); });
+  $("authOut").addEventListener("click", signOut);
+
+  async function remoteGate() {
+    const { data } = await Store.sb.auth.getSession();
+    const session = data && data.session;
+    if (!session) { showAuth(); return false; }
+    Store.email = (session.user.email || "").toLowerCase();
+    if (location.hash && /access_token|error_description/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search);
+    const m = await Store.sb.from("members").select("email").limit(1);
+    if (m.error) { showAuth("The member list could not be checked: " + m.error.message); return false; }
+    if (!m.data || !m.data.length) { showAuth("", Store.email); return false; }
+    $("whoAmI").textContent = Store.email; $("whoAmI").hidden = false;
+    $("btnRefresh").hidden = false; $("btnSignOut").hidden = false;
+    Store.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") location.reload(); });
+    return true;
+  }
+
   (async function start() {
     await Store.init();
+    if (Store.remote) {
+      let ok = false;
+      try { ok = await remoteGate(); } catch (e) { showAuth("The sign-in service could not be reached. Check your connection and reload."); }
+      if (!ok) return;
+    }
     try {
-      const r = await Store.get("lab/registry");
+      const r = await loadRegistry();
       R = normalize(r || defaultRegistry());
-      setState(Store.local ? "Changes are saved in this browser only" : "");
+      setState(Store.local ? "Changes are saved in this browser only" : Store.remote ? "Shared with your lab" : "");
     } catch (e) {
       Store.broken = true;
       R = normalize(defaultRegistry());
