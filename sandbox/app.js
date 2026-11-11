@@ -24,7 +24,9 @@
   function openDialog(o) {
     $("dlgTitle").textContent = o.title;
     $("dlgText").textContent = o.text || "";
-    const a = $("dlgArea"), inp = $("dlgInput");
+    const a = $("dlgArea"), inp = $("dlgInput"), pick = $("dlgSelect");
+    pick.hidden = !o.select;
+    pick.innerHTML = (o.select || []).map((x) => '<option value="' + esc(x.v) + '"' + (String(x.v) === String(o.selected) ? " selected" : "") + ">" + esc(x.t) + "</option>").join("");
     inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || "";
     a.hidden = o.area === undefined;
     a.value = o.area || ""; a.readOnly = !!o.readonly; a.placeholder = o.placeholder || "";
@@ -33,7 +35,7 @@
     (o.actions || []).concat([{ label: o.closeLabel || "Cancel" }]).forEach((act) => {
       const btn = document.createElement("button");
       btn.type = "button"; btn.className = "btn" + (act.primary ? " primary" : ""); btn.textContent = act.label;
-      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(o.input !== undefined ? inp.value : a.value); });
+      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(o.select ? pick.value : o.input !== undefined ? inp.value : a.value); });
       b.appendChild(btn);
     });
     $("dlg").showModal();
@@ -729,56 +731,74 @@
 
   /* ---------- samples registry ---------- */
   let R = null, cur = null, savedJson = "", dirtyTimer;
-  const NINFO = 8, NPROC = 4;
+  const NINFO = 8, NPROC = 4, MAXCOLS = 20; // NINFO/NPROC: the layout given to data saved before columns became editable
+  const newColId = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const seqIds = (n, p) => Array.from({ length: n }, (_, k) => p + k);
   const sampleName = (sm) => (sm.info[0] && sm.info[0].trim()) || "Sample " + (R.samples.indexOf(sm) + 1);
   function defaultRegistry() {
     return {
       infoTitles: ["Sample name", "Composition", "Date prepared", "Batch", "Notes", "Info 6", "Info 7", "Info 8"],
       procTitles: ["Synthesis", "Purification", "Drying", "Characterization"],
-      samples: [{ id: "example", example: true, info: ["Example sample", "", "", "", "Example row with example data. Edit or delete it."], proc: [true, false, false, false, false], rows: 16, cols: 5 }],
+      infoIds: seqIds(NINFO, "i"), procIds: seqIds(NPROC, "p"),
+      samples: [{ id: "example", example: true, info: ["Example sample", "", "", "", "Example row with example data. Edit or delete it."], proc: [true, false, false, false], rows: 16, cols: 5 }],
     };
   }
   function normalize(r) {
-    const fix = (a, fill, len) => { a = Array.isArray(a) ? a.slice(0, len) : []; while (a.length < len) a.push(fill(a.length)); return a; };
-    r.infoTitles = fix(r.infoTitles, (k) => "Info " + (k + 1), NINFO); r.procTitles = fix(r.procTitles, (k) => "Process " + (k + 1), NPROC);
+    if (!Array.isArray(r.infoIds) || !r.infoIds.length) r.infoIds = seqIds(NINFO, "i");
+    if (!Array.isArray(r.procIds) || !r.procIds.length) r.procIds = seqIds(NPROC, "p");
+    const titles = (a, ids, word) => ids.map((_, k) => (Array.isArray(a) && a[k] !== null && a[k] !== undefined && String(a[k]).trim()) || word + " " + (k + 1));
+    r.infoTitles = titles(r.infoTitles, r.infoIds, "Info"); r.procTitles = titles(r.procTitles, r.procIds, "Process");
     r.samples = (Array.isArray(r.samples) ? r.samples : []).filter((s) => s && s.id);
-    r.samples.forEach(normSample);
+    r.samples.forEach((s) => normSample(s, r));
     return r;
   }
-  function normSample(s) {
-    const fix = (a, fill, len) => { a = Array.isArray(a) ? a.slice(0, len) : []; while (a.length < len) a.push(fill(a.length)); return a; };
-    s.info = fix(s.info, () => "", NINFO).map(String); s.proc = fix(s.proc, () => false, NPROC).map(Boolean);
+  // A sample keeps its values by column id (infoMap, procMap); info and proc are the same values in the order the columns are shown.
+  function normSample(s, reg) {
+    reg = reg || R;
+    const byPosition = (a, p) => { const m = {}; (Array.isArray(a) ? a : []).forEach((v, k) => { m[p + k] = v; }); return m; };
+    const isMap = (m) => m && typeof m === "object" && !Array.isArray(m);
+    s.infoMap = isMap(s.infoMap) ? s.infoMap : byPosition(s.info, "i");
+    s.procMap = isMap(s.procMap) ? s.procMap : byPosition(s.proc, "p");
+    s.info = reg.infoIds.map((id) => (s.infoMap[id] === null || s.infoMap[id] === undefined ? "" : String(s.infoMap[id])));
+    s.proc = reg.procIds.map((id) => !!s.procMap[id]);
     s.sheets = (Array.isArray(s.sheets) ? s.sheets : []).filter((h) => h && h.id);
     if (!s.sheets.length) s.sheets = [{ id: "main", name: "Data", rows: s.rows || 0, cols: s.cols || 0 }];
     return s;
   }
+  function packSample(sm) {
+    R.infoIds.forEach((id, k) => { sm.infoMap[id] = sm.info[k]; });
+    R.procIds.forEach((id, k) => { sm.procMap[id] = sm.proc[k]; });
+    return JSON.parse(JSON.stringify(sm));
+  }
+  const packTitles = () => ({ infoTitles: R.infoTitles.slice(), procTitles: R.procTitles.slice(), infoIds: R.infoIds.slice(), procIds: R.procIds.slice() });
   const sheetPath = (sm, sh) => (sh.id === "main" ? "datasets/" + sm.id : "datasets/" + sm.id + "/" + sh.id);
   function sheetSummary(sm) {
     if (sm.sheets.length > 1) return sm.sheets.length + " sheets";
     const h = sm.sheets[0];
     return h.rows ? h.rows + " × " + h.cols : "empty";
   }
-  function saveRegistry() { if (!Store.remote) save("lab/registry", JSON.parse(JSON.stringify(R))); }
+  function saveRegistry() { if (!Store.remote) save("lab/registry", Object.assign(packTitles(), { samples: R.samples.map(packSample) })); }
   // Online, each sample is its own row and the column titles are another, so people editing different samples never overwrite each other.
-  function saveTitles() { if (Store.remote) save("lab/titles", { infoTitles: R.infoTitles.slice(), procTitles: R.procTitles.slice() }); else saveRegistry(); }
-  function saveSample(sm) { if (Store.remote) save("samples/" + sm.id, JSON.parse(JSON.stringify(sm))); else saveRegistry(); }
+  function saveTitles() { if (Store.remote) save("lab/titles", packTitles()); else saveRegistry(); }
+  function saveSample(sm) { if (Store.remote) save("samples/" + sm.id, packSample(sm)); else saveRegistry(); }
   async function loadRemoteRegistry() {
     const [titles, rows] = await Promise.all([Store.get("lab/titles"), Store.list("samples/")]);
     const samples = rows.map((r) => r.data).filter((d) => d && d.id).sort((a, b) => (a.created || 0) - (b.created || 0));
     if (!titles && !samples.length) {
       const r = defaultRegistry();
       r.samples[0].created = 0;
-      await Store.set("lab/titles", { infoTitles: r.infoTitles, procTitles: r.procTitles });
+      await Store.set("lab/titles", { infoTitles: r.infoTitles, procTitles: r.procTitles, infoIds: r.infoIds, procIds: r.procIds });
       await Store.set("samples/example", r.samples[0]);
       return r;
     }
     const d = defaultRegistry();
-    return { infoTitles: (titles && titles.infoTitles) || d.infoTitles, procTitles: (titles && titles.procTitles) || d.procTitles, samples: samples };
+    if (!titles) return Object.assign(d, { samples: samples });
+    return { infoTitles: titles.infoTitles, procTitles: titles.procTitles, infoIds: titles.infoIds, procIds: titles.procIds, samples: samples };
   }
   async function loadRegistry() { return Store.remote ? loadRemoteRegistry() : Store.get("lab/registry"); }
   function renderRegistry() {
     if (!R) return;
-    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + NINFO + '">Sample information</th><th colspan="' + NPROC + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
+    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + R.infoTitles.length + '">Sample information</th><th colspan="' + R.procTitles.length + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
     R.infoTitles.forEach((t, k) => { h += '<th><input type="text" id="it' + k + '" data-title="info" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of information column ' + (k + 1) + '"></th>'; });
     R.procTitles.forEach((t, k) => { h += '<th class="ck"><input type="text" id="pt' + k + '" data-title="proc" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of process column ' + (k + 1) + '"></th>'; });
     h += '<th class="narrow">Measurements</th><th class="narrow"></th></tr></thead><tbody>';
@@ -788,7 +808,7 @@
       sm.proc.forEach((v, k) => { h += '<td class="ck"><input type="checkbox" id="sp' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '"' + (v ? " checked" : "") + ' aria-label="' + esc(R.procTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + sheetSummary(sm) + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
     });
-    if (!R.samples.length) h += '<tr><td colspan="' + (NINFO + NPROC + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
+    if (!R.samples.length) h += '<tr><td colspan="' + (R.infoTitles.length + R.procTitles.length + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
     $("reg").innerHTML = h + "</tbody>";
     const n = R.samples.length;
     $("regCount").textContent = n + (n === 1 ? " sample" : " samples");
@@ -814,9 +834,43 @@
       } }] });
     }
   });
+  /* ---------- add or delete columns of the sample list ---------- */
+  function addColumn(kind) {
+    const info = kind === "info", titles = info ? R.infoTitles : R.procTitles, ids = info ? R.infoIds : R.procIds;
+    if (titles.length >= MAXCOLS) return toast("This section already has " + MAXCOLS + " columns, the most it can hold.");
+    openDialog({ title: info ? "Add a Sample information column" : "Add a Sample process column", text: info ? "The new column is added at the end of the Sample information section, for every sample." : "The new column is added at the end of the Processes completed section, as a tick box for every sample.", input: "", placeholder: "Column title", actions: [{ label: "Add column", primary: true, fn: (v) => {
+      titles.push(v.trim() || (info ? "Info " : "Process ") + (titles.length + 1)); ids.push(newColId(info ? "i" : "p"));
+      R.samples.forEach((sm) => { if (info) sm.info.push(""); else sm.proc.push(false); });
+      renderRegistry(); saveTitles();
+      const el = $((info ? "it" : "pt") + (titles.length - 1)); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } }] });
+  }
+  function deleteColumn(kind) {
+    const info = kind === "info", titles = info ? R.infoTitles : R.procTitles, ids = info ? R.infoIds : R.procIds, first = info ? 1 : 0;
+    if (titles.length <= 1) return toast(info ? "The first column holds the sample's name and cannot be deleted." : "This section needs at least one column.");
+    const choices = titles.map((t, k) => ({ v: k, t: t })).slice(first);
+    openDialog({ title: info ? "Delete a Sample information column" : "Delete a Sample process column", text: "Choose the column to delete. It disappears for everyone, together with what each sample has in it. This cannot be undone." + (info ? " The first column holds the sample's name, so it cannot be deleted." : ""), select: choices, selected: titles.length - 1, actions: [{ label: "Delete column", primary: true, fn: (v) => {
+      const k = +v;
+      if (!(k >= first && k < titles.length)) return;
+      const name = titles[k];
+      titles.splice(k, 1); ids.splice(k, 1);
+      R.samples.forEach((sm) => { if (info) sm.info.splice(k, 1); else sm.proc.splice(k, 1); });
+      if (info) CMP.group = "all";
+      renderRegistry(); saveTitles(); toast("Column " + name + " deleted.");
+    } }] });
+  }
+  $("samplesView").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-colop]");
+    if (!b || !R) return;
+    b.closest("details").open = false;
+    const [kind, op] = b.dataset.colop.split("-");
+    if (op === "add") addColumn(kind); else deleteColumn(kind);
+  });
+  document.addEventListener("click", (e) => { document.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; }); });
+
   $("btnAddSample").addEventListener("click", () => {
     if (!R) return;
-    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: Array.from({ length: NINFO }, () => ""), proc: Array.from({ length: NPROC }, () => false), rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
+    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: R.infoIds.map(() => ""), proc: R.procIds.map(() => false), infoMap: {}, procMap: {}, rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
     R.samples.push(sm);
     renderRegistry(); saveSample(sm);
     const el = $("si" + (R.samples.length - 1) + "_0");
