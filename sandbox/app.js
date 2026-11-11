@@ -8,7 +8,7 @@
   const SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "triangle-down", "x", "star"];
 
   const S = {
-    cols: [], n: 0, page: 0, example: true, editFormula: -1,
+    cols: [], n: 0, page: 0, example: true, editFormula: -1, sel: [], selAnchor: -1,
     plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false },
     stat: { type: "desc", x: 0, y: 1, order: 1, model: "expdec", expr: "a*exp(-x/b) + c", init: "", groups: [], paired: false },
     fit: null, statText: "",
@@ -85,7 +85,7 @@
   function setData(cols, example) {
     S.n = Math.max.apply(null, cols.map((c) => c.values.length).concat([1]));
     cols.forEach((c) => { while (c.values.length < S.n) c.values.push(null); });
-    S.cols = cols; S.page = 0; S.example = !!example; S.fit = null; S.editFormula = -1;
+    S.cols = cols; S.page = 0; S.example = !!example; S.fit = null; S.editFormula = -1; S.sel = []; S.selAnchor = -1;
     C.recompute(S.cols, S.n);
     const nc = numCols();
     S.plot.x = nc.length > 1 ? nc[0] : -1;
@@ -109,8 +109,8 @@
     const g = $("grid");
     let h = '<thead><tr><th class="corner"></th>';
     S.cols.forEach((c, j) => {
-      h += '<th><div class="colhead"><div class="line1"><span class="ltr">' + C.letter(j) + '</span><span class="sp"></span>' +
-        '<button class="iconbtn" type="button" data-act="copycol" data-c="' + j + '" title="Copy this column">copy</button>' +
+      h += '<th data-hc="' + j + '"' + (S.sel.indexOf(j) >= 0 ? ' class="selc"' : "") + '><div class="colhead"><div class="line1" data-selcol="' + j + '" title="Click to select the whole column. Shift-click or Ctrl-click selects several."><span class="ltr">' + C.letter(j) + '</span><span class="sp"></span>' +
+        '<button class="iconbtn" type="button" data-act="copycol" data-c="' + j + '" title="Copy this column\'s data (without name and unit)">copy</button>' +
         '<button class="iconbtn" type="button" data-act="delcol" data-c="' + j + '" title="Delete this column" aria-label="Delete column ' + C.letter(j) + '">×</button></div>' +
         '<input id="cn' + j + '" data-f="name" data-c="' + j + '" value="' + esc(c.name) + '" aria-label="Name of column ' + C.letter(j) + '">' +
         '<input id="cu' + j + '" class="unit" data-f="unit" data-c="' + j + '" value="' + esc(c.unit || "") + '" placeholder="unit" aria-label="Unit of column ' + C.letter(j) + '">' +
@@ -123,12 +123,14 @@
       h += '<tr><th class="rn">' + (i + 1) + '<button type="button" data-act="delrow" data-r="' + i + '" title="Delete row ' + (i + 1) + '" aria-label="Delete row ' + (i + 1) + '">×</button></th>';
       S.cols.forEach((c, j) => {
         const v = c.values[i];
-        h += "<td" + (c.formula ? ' class="calc"' : ' contenteditable="true"' + (typeof v === "string" ? ' class="txt"' : "")) + ' data-r="' + i + '" data-c="' + j + '">' + esc(c.formula ? dispCalc(v) : disp(v)) + "</td>";
+        const cls = (c.formula ? "calc" : typeof v === "string" ? "txt" : "") + (S.sel.indexOf(j) >= 0 ? " selc" : "");
+        h += "<td" + (c.formula ? "" : ' contenteditable="true"') + (cls.trim() ? ' class="' + cls.trim() + '"' : "") + ' data-r="' + i + '" data-c="' + j + '">' + esc(c.formula ? dispCalc(v) : disp(v)) + "</td>";
       });
       h += "</tr>";
     }
     g.innerHTML = h + "</tbody>";
     $("dims").textContent = S.n + " rows × " + S.cols.length + " columns";
+    S.sel = S.sel.filter((i) => i < S.cols.length); paintSel();
     $("dsChip").hidden = !S.example;
     const pages = Math.ceil(S.n / PAGE), pg = $("pager");
     pg.innerHTML = pages > 1 ? '<button class="btn small" type="button" data-pg="-1"' + (S.page ? "" : " disabled") + '>Previous</button><span>Rows ' + (a + 1) + "–" + b + " of " + S.n + '</span><button class="btn small" type="button" data-pg="1"' + (S.page < pages - 1 ? "" : " disabled") + ">Next</button>" : "";
@@ -191,13 +193,61 @@
     c[f] = e.target.value.trim() || (f === "name" ? C.letter(+e.target.dataset.c) : "");
     changed(); renderAll();
   });
+  /* whole-column selection, as in Excel or Origin: click the top strip of a column */
+  function columnsText(idx) {
+    const cols = idx.slice().sort((a, b) => a - b).map((i) => S.cols[i]);
+    let n = S.n;
+    while (n > 0 && cols.every((c) => c.values[n - 1] === null || c.values[n - 1] === undefined)) n--;
+    return C.toTSV(cols, n, false);
+  }
+  function paintSel() {
+    $("grid").querySelectorAll("[data-hc]").forEach((th) => th.classList.toggle("selc", S.sel.indexOf(+th.dataset.hc) >= 0));
+    $("grid").querySelectorAll("td[data-c]").forEach((td) => td.classList.toggle("selc", S.sel.indexOf(+td.dataset.c) >= 0));
+    const n = S.sel.length;
+    $("selInfo").hidden = !n;
+    if (n) $("selInfo").textContent = (n === 1 ? "Column " + C.letter(S.sel[0]) : n + " columns") + " selected: Ctrl+C copies the data, Ctrl+V pastes from the first row, Delete clears, Esc deselects";
+  }
+  function clearSel() { if (S.sel.length) { S.sel = []; S.selAnchor = -1; paintSel(); } }
+  $("grid").addEventListener("click", (e) => {
+    const strip = e.target.closest("[data-selcol]");
+    if (!strip || e.target.closest("button")) return;
+    const j = +strip.dataset.selcol;
+    if (e.shiftKey && S.selAnchor >= 0) { const a = Math.min(S.selAnchor, j), b = Math.max(S.selAnchor, j); S.sel = []; for (let i = a; i <= b; i++) S.sel.push(i); }
+    else if (e.ctrlKey || e.metaKey) { S.sel = S.sel.indexOf(j) >= 0 ? S.sel.filter((i) => i !== j) : S.sel.concat([j]); S.selAnchor = j; }
+    else { S.sel = S.sel.length === 1 && S.sel[0] === j ? [] : [j]; S.selAnchor = j; }
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const ws = window.getSelection && window.getSelection(); if (ws && ws.removeAllRanges) ws.removeAllRanges();
+    paintSel();
+  });
+  $("grid").addEventListener("focusin", (e) => { if (e.target.matches && e.target.matches("td, input")) clearSel(); });
+  const typingTarget = (t) => !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  document.addEventListener("copy", (e) => {
+    if (!inBench() || !S.sel.length || typingTarget(e.target) || $("dlg").open) return;
+    e.clipboardData.setData("text/plain", columnsText(S.sel));
+    e.preventDefault();
+    toast((S.sel.length === 1 ? "Column " + C.letter(S.sel[0]) : S.sel.length + " columns") + " copied (data only).");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!inBench() || !S.sel.length || typingTarget(e.target) || $("dlg").open) return;
+    if (e.key === "Escape") clearSel();
+    else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      const idx = S.sel.filter((i) => !S.cols[i].formula);
+      if (!idx.length) return toast("Calculated columns cannot be cleared. Edit or remove their formula instead.");
+      openDialog({ title: "Clear " + (idx.length === 1 ? "column " + C.letter(idx[0]) : idx.length + " columns") + "?", text: "All values in the selected columns are removed. Names and units are kept. This cannot be undone.", actions: [{ label: "Clear values", primary: true, fn: () => {
+        idx.forEach((i) => { S.cols[i].values = S.cols[i].values.map(() => null); });
+        changed(); renderAll();
+      } }] });
+    }
+  });
   $("grid").addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const act = b.dataset.act, c = +b.dataset.c;
-    if (act === "copycol") copyText(C.toTSV([S.cols[c]], S.n, $("copyHeaders").checked), "Column " + C.letter(c));
+    if (act === "copycol") copyText(columnsText([c]), "Column " + C.letter(c) + " data");
     if (act === "delcol") {
       if (S.cols.length < 2) return toast("A table needs at least one column.");
+      S.sel = []; S.selAnchor = -1;
       S.cols.splice(c, 1); remapAfterDelete(c); changed(); renderAll();
     }
     if (act === "delrow") {
@@ -265,6 +315,7 @@
     if (!inBench()) return;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (text && text.trim() && S.sel.length) { e.preventDefault(); pasteBlock(0, Math.min.apply(null, S.sel), text); return; }
     if (text && text.trim()) { e.preventDefault(); importText(text); }
   });
   let dragDepth = 0;
@@ -678,25 +729,25 @@
 
   /* ---------- samples registry ---------- */
   let R = null, cur = null, savedJson = "", dirtyTimer;
-  const NCOL = 5;
+  const NINFO = 8, NPROC = 4;
   const sampleName = (sm) => (sm.info[0] && sm.info[0].trim()) || "Sample " + (R.samples.indexOf(sm) + 1);
   function defaultRegistry() {
     return {
-      infoTitles: ["Sample name", "Composition", "Date prepared", "Batch", "Notes"],
-      procTitles: ["Synthesis", "Purification", "Drying", "Characterization", "Data analysis"],
+      infoTitles: ["Sample name", "Composition", "Date prepared", "Batch", "Notes", "Info 6", "Info 7", "Info 8"],
+      procTitles: ["Synthesis", "Purification", "Drying", "Characterization"],
       samples: [{ id: "example", example: true, info: ["Example sample", "", "", "", "Example row with example data. Edit or delete it."], proc: [true, false, false, false, false], rows: 16, cols: 5 }],
     };
   }
   function normalize(r) {
-    const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
-    r.infoTitles = fix(r.infoTitles, (k) => "Info " + (k + 1)); r.procTitles = fix(r.procTitles, (k) => "Process " + (k + 1));
+    const fix = (a, fill, len) => { a = Array.isArray(a) ? a.slice(0, len) : []; while (a.length < len) a.push(fill(a.length)); return a; };
+    r.infoTitles = fix(r.infoTitles, (k) => "Info " + (k + 1), NINFO); r.procTitles = fix(r.procTitles, (k) => "Process " + (k + 1), NPROC);
     r.samples = (Array.isArray(r.samples) ? r.samples : []).filter((s) => s && s.id);
     r.samples.forEach(normSample);
     return r;
   }
   function normSample(s) {
-    const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
-    s.info = fix(s.info, () => "").map(String); s.proc = fix(s.proc, () => false).map(Boolean);
+    const fix = (a, fill, len) => { a = Array.isArray(a) ? a.slice(0, len) : []; while (a.length < len) a.push(fill(a.length)); return a; };
+    s.info = fix(s.info, () => "", NINFO).map(String); s.proc = fix(s.proc, () => false, NPROC).map(Boolean);
     s.sheets = (Array.isArray(s.sheets) ? s.sheets : []).filter((h) => h && h.id);
     if (!s.sheets.length) s.sheets = [{ id: "main", name: "Data", rows: s.rows || 0, cols: s.cols || 0 }];
     return s;
@@ -727,7 +778,7 @@
   async function loadRegistry() { return Store.remote ? loadRemoteRegistry() : Store.get("lab/registry"); }
   function renderRegistry() {
     if (!R) return;
-    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + NCOL + '">Sample information</th><th colspan="' + NCOL + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
+    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + NINFO + '">Sample information</th><th colspan="' + NPROC + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
     R.infoTitles.forEach((t, k) => { h += '<th><input type="text" id="it' + k + '" data-title="info" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of information column ' + (k + 1) + '"></th>'; });
     R.procTitles.forEach((t, k) => { h += '<th class="ck"><input type="text" id="pt' + k + '" data-title="proc" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of process column ' + (k + 1) + '"></th>'; });
     h += '<th class="narrow">Measurements</th><th class="narrow"></th></tr></thead><tbody>';
@@ -737,7 +788,7 @@
       sm.proc.forEach((v, k) => { h += '<td class="ck"><input type="checkbox" id="sp' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '"' + (v ? " checked" : "") + ' aria-label="' + esc(R.procTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + sheetSummary(sm) + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
     });
-    if (!R.samples.length) h += '<tr><td colspan="' + (2 * NCOL + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
+    if (!R.samples.length) h += '<tr><td colspan="' + (NINFO + NPROC + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
     $("reg").innerHTML = h + "</tbody>";
     const n = R.samples.length;
     $("regCount").textContent = n + (n === 1 ? " sample" : " samples");
@@ -765,7 +816,7 @@
   });
   $("btnAddSample").addEventListener("click", () => {
     if (!R) return;
-    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
+    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: Array.from({ length: NINFO }, () => ""), proc: Array.from({ length: NPROC }, () => false), rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
     R.samples.push(sm);
     renderRegistry(); saveSample(sm);
     const el = $("si" + (R.samples.length - 1) + "_0");
