@@ -124,6 +124,11 @@ table.grid.reg, .grid.reg input[type="text"] { font-family: var(--body); }
 .btn:disabled:hover { border-color: var(--line); }
 .seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
 .seq-mode .colhead input { cursor: default; }
+.axisrow { gap: 6px 18px; }
+.axgroup { display: inline-flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; }
+.axlbl { font: 600 12px var(--body); color: var(--ink); padding-bottom: 7px; min-width: 44px; }
+.field input.num { width: 78px; }
+.note.bad:empty { display: none; }
 .maskbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .maskchips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-height: 92px; overflow: auto; }
 .mchip { display: inline-flex; align-items: center; gap: 2px; font: 12px var(--mono); border: 1px dashed var(--line); border-radius: 999px; padding: 1px 4px 1px 8px; color: var(--muted); }
@@ -276,6 +281,12 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
     </div>
     <p class="note" id="cNote" style="max-width:none"></p>
     <div id="cChart" role="img" aria-label="Combined plot of the selected samples"><div id="cChartIn"></div></div>
+      <div class="controls axisrow">
+        <span class="axgroup"><span class="axlbl">X axis</span><label class="field">from <input type="text" class="num" inputmode="decimal" id="cAx_xmin" placeholder="auto" autocomplete="off"></label><label class="field">to <input type="text" class="num" inputmode="decimal" id="cAx_xmax" placeholder="auto" autocomplete="off"></label><label class="field">tick step <input type="text" class="num" inputmode="decimal" id="cAx_xstep" placeholder="auto" autocomplete="off"></label></span>
+        <span class="axgroup"><span class="axlbl">Y axis</span><label class="field">from <input type="text" class="num" inputmode="decimal" id="cAx_ymin" placeholder="auto" autocomplete="off"></label><label class="field">to <input type="text" class="num" inputmode="decimal" id="cAx_ymax" placeholder="auto" autocomplete="off"></label><label class="field">tick step <input type="text" class="num" inputmode="decimal" id="cAx_ystep" placeholder="auto" autocomplete="off"></label></span>
+        <button class="btn small" id="cAxReset" type="button" title="Empty all the boxes so the axes fit the data again">Auto scale</button>
+      </div>
+      <p class="note bad" id="cAxNote" role="status"></p>
     <div class="controls">
       <label class="field wide">Title <input type="text" id="cTitle" placeholder="none"></label>
       <label class="field wide">X label <input type="text" id="cXL" placeholder="from column name"></label>
@@ -335,6 +346,13 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
         <label class="check"><input type="checkbox" id="pLogY2"> log right Y</label>
       </div>
       <div id="chart" role="img" aria-label="Plot of the selected columns"><div id="chartIn"></div></div>
+      <div class="controls axisrow">
+        <span class="axgroup"><span class="axlbl">X axis</span><label class="field">from <input type="text" class="num" inputmode="decimal" id="pAx_xmin" placeholder="auto" autocomplete="off"></label><label class="field">to <input type="text" class="num" inputmode="decimal" id="pAx_xmax" placeholder="auto" autocomplete="off"></label><label class="field">tick step <input type="text" class="num" inputmode="decimal" id="pAx_xstep" placeholder="auto" autocomplete="off"></label></span>
+        <span class="axgroup"><span class="axlbl">Y axis</span><label class="field">from <input type="text" class="num" inputmode="decimal" id="pAx_ymin" placeholder="auto" autocomplete="off"></label><label class="field">to <input type="text" class="num" inputmode="decimal" id="pAx_ymax" placeholder="auto" autocomplete="off"></label><label class="field">tick step <input type="text" class="num" inputmode="decimal" id="pAx_ystep" placeholder="auto" autocomplete="off"></label></span>
+        <span class="axgroup" id="pAxY2" hidden><span class="axlbl">Right Y</span><label class="field">from <input type="text" class="num" inputmode="decimal" id="pAx_y2min" placeholder="auto" autocomplete="off"></label><label class="field">to <input type="text" class="num" inputmode="decimal" id="pAx_y2max" placeholder="auto" autocomplete="off"></label></span>
+        <button class="btn small" id="pAxReset" type="button" title="Empty all the boxes so the axes fit the data again">Auto scale</button>
+      </div>
+      <p class="note bad" id="pAxNote" role="status"></p>
       <div class="controls">
         <label class="field wide">Title <input type="text" id="pTitle" placeholder="none"></label>
         <label class="field wide">X label <input type="text" id="pXL" placeholder="from column name"></label>
@@ -427,8 +445,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794401413"></script>
-<script src="core.js?v=1794401413"></script>
-<script src="app.js?v=1794401413"></script>
+<script src="config.js?v=1794411904"></script>
+<script src="core.js?v=1794411904"></script>
+<script src="app.js?v=1794411904"></script>
 </body>
 </html>
