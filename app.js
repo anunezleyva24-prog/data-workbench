@@ -8,7 +8,7 @@
   const SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "triangle-down", "x", "star"];
 
   const S = {
-    cols: [], n: 0, page: 0, example: true, editFormula: -1, sel: [], selAnchor: -1, readonly: false, seq: null,
+    cols: [], n: 0, page: 0, example: true, editFormula: -1, sel: [], selAnchor: -1, readonly: false, seq: null, seqSel: new Set(), seqSelMode: false,
     plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false, stepColors: true },
     stat: { type: "desc", x: 0, y: 1, order: 1, model: "expdec", expr: "a*exp(-x/b) + c", init: "", groups: [], paired: false },
     fit: null, statText: "",
@@ -112,11 +112,13 @@
 
   /* ---------- undo / redo for the open table ---------- */
   const H = { undo: [], redo: [], present: null, max: 50 };
+  const MH = { undo: [], redo: [] }; // mask changes of the open sequence
   const histData = () => JSON.stringify({ cols: S.cols.map((c) => ({ name: c.name, unit: c.unit || "", formula: c.formula || null, values: c.formula ? [] : c.values })), n: S.n });
   const histView = () => JSON.stringify({ plot: S.plot, stat: S.stat });
   function histButtons() {
-    $("btnUndo").disabled = S.readonly || !H.undo.length;
-    $("btnRedo").disabled = S.readonly || !H.redo.length;
+    const sq = S.readonly && !!S.seq;
+    $("btnUndo").disabled = sq ? !MH.undo.length : S.readonly || !H.undo.length;
+    $("btnRedo").disabled = sq ? !MH.redo.length : S.readonly || !H.redo.length;
   }
   function histReset() { H.undo = []; H.redo = []; H.present = { d: histData(), v: histView() }; histButtons(); }
   function histRecord() {
@@ -128,7 +130,7 @@
     histButtons();
   }
   function histStep(dir) {
-    if (S.readonly) return;
+    if (S.readonly) { if (S.seq) maskHist(dir); return; }
     const from = dir < 0 ? H.undo : H.redo, to = dir < 0 ? H.redo : H.undo;
     if (!from.length || !H.present) return toast(dir < 0 ? "Nothing to undo." : "Nothing to redo.");
     H.present.v = histView();
@@ -148,7 +150,7 @@
   document.addEventListener("keydown", (e) => {
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     const k = e.key.toLowerCase(), undo = k === "z" && !e.shiftKey, redo = k === "y" || (k === "z" && e.shiftKey);
-    if ((!undo && !redo) || !inBench() || $("dlg").open || S.readonly) return;
+    if ((!undo && !redo) || !inBench() || $("dlg").open || (S.readonly && !S.seq)) return;
     const t = e.target;
     if (t && t.matches) {
       // while a cell or header is being typed in, Ctrl+Z belongs to the browser's own text undo
@@ -458,7 +460,7 @@
           const pick = ri.map((r, q) => (stepCol.values[r] === bd.name ? q : -1)).filter((q) => q >= 0);
           if (!pick.length) return;
           const c2 = tok("--s" + ((si % 8) + 1)), nm = (P.ys.length > 1 ? col.name + " · " : "") + bd.name;
-          const t2 = { type: "scatter", mode: P.type === "scatter" ? "markers" : P.type === "line" ? "lines" : "lines+markers", x: pick.map((q) => x[q]), y: pick.map((q) => y[q]), name: nm + (onRight ? " (right axis)" : ""),
+          const t2 = { type: "scatter", mode: P.type === "scatter" ? "markers" : P.type === "line" ? "lines" : "lines+markers", x: pick.map((q) => x[q]), y: pick.map((q) => y[q]), customdata: pick.map((q) => ri[q]), name: nm + (onRight ? " (right axis)" : ""),
             marker: { color: c2, size: 9, symbol: SYMBOLS[k % 8], line: { color: surface, width: 1.5 } }, line: { color: c2, width: 2 }, hovertemplate: "%{x}<br><b>%{y}</b><extra>" + esc(nm) + "</extra>" };
           if (onRight) t2.yaxis = "y2";
           if (P.err >= 0 && k === 0) t2.error_y = { type: "data", array: pick.map((q) => err[q]), visible: true, color: c2, thickness: 1.2, width: 3 };
@@ -468,6 +470,7 @@
       }
       const tr = { x: x, y: y, name: name, hovertemplate: "%{x}<br><b>%{y}</b><extra>" + esc(name) + "</extra>" };
       if (onRight) tr.yaxis = "y2";
+      if (S.seq) tr.customdata = ri;
       if (P.type === "bar") { tr.type = "bar"; tr.offsetgroup = String(k); tr.marker = { color: color, line: { color: surface, width: 2 } }; }
       else {
         tr.type = "scatter";
@@ -484,6 +487,14 @@
       for (let i = 0; i <= 200; i++) xs.push(P.logx && lo > 0 ? lo * Math.pow(hi / lo, i / 200) : lo + ((hi - lo) * i) / 200);
       traces.push({ type: "scatter", mode: "lines", x: xs, y: F.predict(xs), name: F.label, yaxis: P.right.indexOf(F.yi) >= 0 ? "y2" : "y", line: { color: ink, width: 2 }, hovertemplate: "%{x:.4g}<br><b>%{y:.4g}</b><extra>" + esc(F.label) + "</extra>" });
     }
+    // in a sequence, points can be selected on the plot (to mask them) while X is the time column
+    const selectable = !!S.seq && xy && P.x === 0 && P.type !== "bar";
+    if (selectable) traces.forEach((t) => {
+      if (!t.customdata) return;
+      if (S.seqSelMode && t.mode === "lines") t.mode = "lines+markers";
+      t.unselected = { marker: { opacity: 0.3 } };
+      if (S.seqSel.size) t.selectedpoints = t.customdata.map((r, i) => (S.seqSel.has(r) ? i : -1)).filter((i) => i >= 0);
+    });
     const L = plotLabels();
     const axis = (title, log) => ({ title: { text: title || "", font: { color: muted, size: 13 }, standoff: 8 }, type: log ? "log" : "-", gridcolor: tok("--grid"), linecolor: tok("--line"), showline: true, zeroline: false, ticks: "outside", tickcolor: tok("--line"), tickfont: { color: muted }, automargin: true });
     const layout = {
@@ -501,7 +512,21 @@
     }
     if (!traces.length) layout.annotations = [{ text: "Choose at least one Y column", showarrow: false, font: { color: muted, size: 14 } }];
     else if (S.seq && xy && P.x === 0 && !P.logx) stepMarks(layout, S.seq.bounds, muted);
-    window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage", "lasso2d", "select2d"] });
+    layout.dragmode = selectable && S.seqSelMode ? "select" : "zoom";
+    window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: selectable && S.seqSelMode ? ["toImage"] : ["toImage", "lasso2d", "select2d"] });
+    if (!el._dwSel && el.on) {
+      el._dwSel = true;
+      const rowsOf = (ev) => ((ev && ev.points) || []).map((pt) => pt.customdata).filter((r) => typeof r === "number");
+      el.on("plotly_selected", (ev) => { if (!S.seq || !S.seqSelMode) return; S.seqSel = new Set(rowsOf(ev)); updateMaskBtn(); });
+      el.on("plotly_deselect", () => { if (!S.seq || !S.seqSel.size) return; S.seqSel = new Set(); updateMaskBtn(); });
+      el.on("plotly_click", (ev) => {
+        if (!S.seq || !S.seqSelMode) return;
+        const rows = rowsOf(ev);
+        if (!rows.length) return;
+        rows.forEach((r) => { if (S.seqSel.has(r)) S.seqSel.delete(r); else S.seqSel.add(r); });
+        updateMaskBtn(); setTimeout(drawPlot, 0);
+      });
+    }
     requestAnimationFrame(() => { try { window.Plotly.Plots.resize(el); } catch (e) { /* not drawn yet */ } });
   }
   // thin dashed lines where one step ends and the next begins, with the step names along the top
@@ -1075,9 +1100,15 @@
     C.recompute(cols, n);
     return { cols: cols, n: n };
   }
+  function fingerprint(cols, n) {
+    const str = JSON.stringify(cols.map((c) => [c.name, c.values.slice(0, n)]));
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+    return str.length + ":" + (h >>> 0).toString(36);
+  }
   async function buildSequence(sm, sh) {
     await settle();
-    const q = sh.seq || {}, out = { cols: [], n: 0, bounds: [], notes: [], timeNames: [], x: "" }, loaded = [];
+    const q = sh.seq || {}, out = { cols: [], n: 0, bounds: [], notes: [], timeNames: [], x: "", src: [], masked: [], fps: {}, resets: [] }, loaded = [];
     const steps = (q.steps || []).map((id) => sm.sheets.find((h) => h.id === id && h.type !== "seq")).filter(Boolean);
     for (const st of steps) {
       let r = null;
@@ -1097,12 +1128,21 @@
     let offset = 0;
     loaded.forEach((L) => {
       const tc = L.cols.find((c) => key(c.name) === key(tcol.name)), ycs = others.map((o) => L.cols.find((c) => key(c.name) === key(o.name)));
-      const rows = [];
-      for (let i = 0; i < L.n; i++) if (typeof tc.values[i] === "number") rows.push(i);
-      if (!rows.length) { out.notes.push(L.sh.name + " has no time values"); return; }
+      // a mask belongs to the step's data as it was when the points were masked; if that data changed, the mask is dropped
+      const fp = fingerprint(L.cols, L.n);
+      out.fps[L.sh.id] = fp;
+      let mk = q.mask && q.mask[L.sh.id];
+      if (mk && mk.fp !== fp) { delete q.mask[L.sh.id]; out.resets.push(L.sh.name); mk = null; }
+      const hidden = new Set(mk && Array.isArray(mk.rows) ? mk.rows : []), rows = [];
+      for (let i = 0; i < L.n; i++) {
+        if (typeof tc.values[i] !== "number") continue;
+        if (hidden.has(i)) out.masked.push({ sid: L.sh.id, step: L.sh.name, row: i, t: tc.values[i], y: ycs.length && ycs[0] && typeof ycs[0].values[i] === "number" ? ycs[0].values[i] : null });
+        else rows.push(i);
+      }
+      if (!rows.length) { out.notes.push(L.sh.name + (hidden.size ? " has all its points masked" : " has no time values")); return; }
       const ts = rows.map((i) => tc.values[i]), lo = Math.min.apply(null, ts), hi = Math.max.apply(null, ts), t0 = zero ? lo : 0;
       out.bounds.push({ x: tidy(offset + lo - t0), name: L.sh.name });
-      rows.forEach((i) => { T.push(tidy(tc.values[i] - t0 + offset)); ycs.forEach((yc, k) => Y[k].push(typeof yc.values[i] === "number" ? yc.values[i] : null)); stepv.push(L.sh.name); });
+      rows.forEach((i) => { T.push(tidy(tc.values[i] - t0 + offset)); ycs.forEach((yc, k) => Y[k].push(typeof yc.values[i] === "number" ? yc.values[i] : null)); stepv.push(L.sh.name); out.src.push({ sid: L.sh.id, row: i }); });
       offset = offset + hi - t0 + gap;
     });
     out.cols = [{ name: tcol.name, unit: tcol.unit || "", formula: null, values: T }].concat(others.map((o, k) => ({ name: o.name, unit: o.unit || "", formula: null, values: Y[k] })), [{ name: "Step", unit: "", formula: null, values: stepv }]);
@@ -1117,7 +1157,9 @@
     cur = null;
     $("viewTitle").textContent = sampleName(sm);
     S.readonly = true;
-    S.seq = { bounds: q.bounds, notes: q.notes, timeNames: q.timeNames, x: q.x };
+    S.seq = { bounds: q.bounds, notes: q.notes, timeNames: q.timeNames, x: q.x, src: q.src, masked: q.masked, fps: q.fps };
+    S.seqSel = new Set();
+    if (!keep) { MH.undo = []; MH.redo = []; S.seqSelMode = false; }
     if (!keep) { S.stat.type = "desc"; S.plot.type = "linesym"; S.plot.stepColors = true; }
     setData(q.n ? q.cols : [{ name: "Time", unit: "", formula: null, values: [null] }], false);
     if (saved && saved.plot) {
@@ -1136,10 +1178,13 @@
     cur = sm; curSheet = sh;
     renderSheetTabs();
     histReset();
+    if (q.resets.length) { saveSample(sm); toast("The mask on " + q.resets.join(", ") + " was cleared because the data in " + (q.resets.length === 1 ? "that sheet" : "those sheets") + " changed."); }
     return true;
   }
   function renderSeqPanel() {
     const box = $("seqPanel"), on = !!(cur && curSheet && curSheet.type === "seq");
+    const nm = on && S.seq ? S.seq.masked.length : 0;
+    $("oMaskNote").textContent = nm ? nm + (nm === 1 ? " masked point is" : " masked points are") + " left out." : "";
     document.body.classList.toggle("seq-mode", on);
     box.hidden = !on;
     if (!on) { box.innerHTML = ""; return; }
@@ -1157,13 +1202,50 @@
       '<label class="field">Gap between steps <input type="text" id="seqGap" inputmode="decimal" size="6" value="' + esc(String(+q.gap || 0)) + '"></label>' +
       '<label class="check"><input type="checkbox" id="seqZero"' + (q.zero !== false ? " checked" : "") + "> start every step at 0</label>" +
       '<button type="button" class="btn small" id="seqCopy">Copy setup to other samples</button></div></div>';
+    h += '<div class="maskbar"><label class="check"><input type="checkbox" id="seqSelMode"' + (S.seqSelMode ? " checked" : "") + '> select points on the plot (drag a box; Shift adds; click toggles one point)</label>' +
+      '<button type="button" class="btn small" id="seqMask" disabled>Mask selected</button>' +
+      '<button type="button" class="btn small" id="seqClearMask"' + (nm ? "" : " disabled") + ">Clear mask</button></div>";
+    if (nm) {
+      h += '<div class="maskchips"><span class="lbl">Masked points, left out of the table and the plot (× brings one back):</span>' + S.seq.masked.map((m, i) =>
+        '<span class="mchip">' + esc(m.step) + " · " + esc(S.seq.x) + " " + esc(disp(m.t)) + (m.y !== null ? " · " + esc(dispCalc(m.y)) : "") + '<button type="button" class="iconbtn" data-unmask="' + i + '" title="Unmask this point" aria-label="Unmask this point">×</button></span>').join("") + "</div>";
+    }
     h += '<p class="note">The table below is calculated from the ticked sheets and updates when they change. It keeps the columns that every step has, matched by name.' + (S.seq.notes.length ? " Left out: " + esc(S.seq.notes.join("; ")) + "." : "") + "</p>";
     box.innerHTML = h;
+    updateMaskBtn();
   }
+  function updateMaskBtn() {
+    const b = $("seqMask");
+    if (!b) return;
+    b.disabled = !S.seqSel.size;
+    b.textContent = S.seqSel.size ? "Mask selected (" + S.seqSel.size + ")" : "Mask selected";
+  }
+  // every mask change goes through here, so it can be undone
+  function maskEdit(fn) {
+    const q = curSheet.seq;
+    MH.undo.push(JSON.stringify(q.mask || {})); if (MH.undo.length > 50) MH.undo.shift();
+    MH.redo = [];
+    q.mask = q.mask || {};
+    fn(q.mask);
+    seqChanged();
+  }
+  function maskHist(dir) {
+    if (!cur || !curSheet || curSheet.type !== "seq") return;
+    const from = dir < 0 ? MH.undo : MH.redo, to = dir < 0 ? MH.redo : MH.undo;
+    if (!from.length) return toast(dir < 0 ? "Nothing to undo." : "Nothing to redo.");
+    to.push(JSON.stringify(curSheet.seq.mask || {}));
+    curSheet.seq.mask = JSON.parse(from.pop());
+    seqChanged();
+    toast(dir < 0 ? "Undone." : "Redone.");
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !S.seq || !S.seqSel.size || $("dlg").open) return;
+    S.seqSel = new Set(); updateMaskBtn(); drawPlot();
+  });
   async function seqChanged() { saveSample(cur); await openSeq(cur, curSheet, true); markDirty(); }
   $("seqPanel").addEventListener("change", (e) => {
     if (!cur || !curSheet || curSheet.type !== "seq") return;
     const t = e.target, q = curSheet.seq;
+    if (t.id === "seqSelMode") { S.seqSelMode = t.checked; if (!t.checked) S.seqSel = new Set(); updateMaskBtn(); drawPlot(); return; }
     if (t.dataset.step !== undefined) q.steps = t.checked ? q.steps.concat([t.dataset.step]) : q.steps.filter((id) => id !== t.dataset.step);
     else if (t.id === "seqX") q.x = t.value;
     else if (t.id === "seqGap") { const v = Number(String(t.value).replace(",", ".")); q.gap = isFinite(v) && v >= 0 ? v : 0; }
@@ -1181,6 +1263,19 @@
       live.splice(j, 0, live.splice(i, 1)[0]); q.steps = live;
       seqChanged();
     } else if (e.target.id === "seqCopy") copySeqSetup();
+    else if (e.target.id === "seqMask") {
+      const picked = Array.from(S.seqSel).map((i) => S.seq.src[i]).filter(Boolean);
+      if (!picked.length) return;
+      maskEdit((mask) => picked.forEach((src) => {
+        const m = mask[src.sid] && mask[src.sid].fp === S.seq.fps[src.sid] ? mask[src.sid] : (mask[src.sid] = { fp: S.seq.fps[src.sid], rows: [] });
+        if (m.rows.indexOf(src.row) < 0) m.rows.push(src.row);
+      }));
+    } else if (e.target.id === "seqClearMask") maskEdit((mask) => { Object.keys(mask).forEach((k) => delete mask[k]); });
+    else if (e.target.closest("[data-unmask]")) {
+      const m = S.seq.masked[+e.target.closest("[data-unmask]").dataset.unmask];
+      if (!m) return;
+      maskEdit((mask) => { const k = mask[m.sid]; if (!k) return; k.rows = k.rows.filter((r) => r !== m.row); if (!k.rows.length) delete mask[m.sid]; });
+    }
   });
   function copySeqSetup() {
     const src = curSheet, me = cur;
