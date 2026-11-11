@@ -109,6 +109,22 @@ table.grid.reg, .grid.reg input[type="text"] { font-family: var(--body); }
 .menulist { position: absolute; right: 0; top: calc(100% + 4px); z-index: 6; min-width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 6px 18px rgba(10, 14, 20, .18); }
 .menulist button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; font-size: 13px; }
 .menulist button:hover, .menulist button:focus-visible { background: var(--accent-soft); color: var(--accent); }
+.seqpanel { padding: 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.seqpanel[hidden] { display: none; }
+.seqcols { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
+.seqpanel .lbl { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.seqsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 220px; }
+.seqsteps li { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.seqsteps li.off { border-style: dashed; background: none; }
+.seqsteps li .sp { flex: 1; }
+.seqsteps label.check { color: var(--ink); }
+.seqsteps .iconbtn { font-size: 14px; }
+.seqsteps .iconbtn:disabled { opacity: .3; cursor: default; }
+.seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
+.seq-mode .colhead input { cursor: default; }
+.dlgchecks { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 8px; }
+.dlgchecks label.check { color: var(--ink); font-size: 14px; }
+.dlgchecks input:disabled + * , .dlgchecks label:has(input:disabled) { color: var(--muted); }
 .selinfo { padding: 5px 10px; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-bottom: 1px solid var(--line); }
 .colhead .ltr { font: 600 12px var(--body); background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 0 6px; }
 .colhead .sp { flex: 1; }
@@ -267,6 +283,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <main>
   <section class="pane" aria-label="Worksheet">
     <nav class="sheettabs" id="sheetTabs" role="tablist" aria-label="Sheets in this sample"></nav>
+    <div class="seqpanel" id="seqPanel" hidden></div>
     <div class="panebar">
       <span class="grow" id="dims"></span>
       <label class="check"><input type="checkbox" id="copyHeaders" checked> with headers</label>
@@ -300,6 +317,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
         <label class="check"><input type="checkbox" id="pLogX"> log X</label>
         <label class="check"><input type="checkbox" id="pLogY"> log Y</label>
         <label class="check"><input type="checkbox" id="pFit" checked> show fitted curve</label>
+        <label class="check" id="pStepWrap" hidden><input type="checkbox" id="pStep" checked> colour each step</label>
       </div>
       <div class="field">Y columns<div class="ychips" id="pYs"></div></div>
       <div class="controls" id="pRightRow">
@@ -379,6 +397,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
   <p class="note" id="dlgText"></p>
   <input type="text" id="dlgInput" class="dlginput" hidden autocomplete="off">
   <select id="dlgSelect" class="dlginput" hidden aria-label="Column"></select>
+  <div id="dlgChecks" class="dlgchecks" hidden></div>
   <textarea id="dlgArea" spellcheck="false"></textarea>
   <div class="row" id="dlgBtns"></div>
 </dialog>
@@ -398,8 +417,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794385640"></script>
-<script src="core.js?v=1794385640"></script>
-<script src="app.js?v=1794385640"></script>
+<script src="config.js?v=1794389247"></script>
+<script src="core.js?v=1794389247"></script>
+<script src="app.js?v=1794389247"></script>
 </body>
 </html>
