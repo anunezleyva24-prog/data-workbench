@@ -786,13 +786,15 @@
   /* ---------- storage: the artifact's database, or this browser as a fallback ---------- */
   const Store = { db: null, sb: null, remote: false, local: false, broken: false, email: "" };
   const CFG = window.DW_CONFIG || {};
-  const PFX = CFG.dataPrefix || "";
+  // demo mode (address ends in ?demo): no sign-in and no database; everything stays in the visitor's own browser
+  const DEMO = /[?&]demo(=|&|$)/.test(location.search);
+  const PFX = DEMO ? "demo/" : CFG.dataPrefix || "";
   const sbErr = (error) => { const e = new Error(error.message || "Request failed"); e.code = error.code === "42501" ? "not_granted" : error.code; return e; };
   const timeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms))]);
   Store.init = async function () {
     const inClaude = !!(window.claude && typeof window.claude.use === "function");
     try { if (inClaude) Store.db = await timeout(window.claude.use("db"), 11000, "timeout"); } catch (e) { Store.db = null; }
-    if (!inClaude && CFG.supabaseUrl && CFG.supabaseKey && window.supabase) {
+    if (!inClaude && !DEMO && CFG.supabaseUrl && CFG.supabaseKey && window.supabase) {
       Store.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
       Store.remote = true;
     }
@@ -1537,7 +1539,11 @@
   $("btnSignOut").addEventListener("click", () => { flush(); signOut(); });
   $("authOut").addEventListener("click", signOut);
 
-  if (CFG.sandbox) {
+  if (DEMO) {
+    document.title = "Data Workbench (demo)";
+    $("sbxChip").textContent = "Demo: no sign-in, nothing is shared, your changes stay in this browser";
+    $("sbxChip").hidden = false;
+  } else if (CFG.sandbox) {
     document.title = "Data Workbench (sandbox)";
     $("sbxChip").hidden = false;
   }
