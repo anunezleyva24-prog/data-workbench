@@ -99,6 +99,7 @@
     if (["hist", "box"].indexOf(S.plot.type) >= 0) S.plot.type = "scatter";
     S.stat.x = nc.length ? nc[0] : 0; S.stat.y = nc.length > 1 ? nc[1] : 0; S.stat.groups = nc.slice(1, 4);
     renderAll();
+    histRecord();
   }
   function remapAfterDelete(d) {
     const m = (i) => (i === d ? -1 : i > d ? i - 1 : i);
@@ -107,7 +108,60 @@
     T.x = Math.max(0, m(T.x)); T.y = Math.max(0, m(T.y)); T.groups = T.groups.map(m).filter((i) => i >= 0);
     S.fit = null; S.editFormula = -1;
   }
-  function changed() { S.example = false; C.recompute(S.cols, S.n); }
+  function changed() { S.example = false; C.recompute(S.cols, S.n); histRecord(); }
+
+  /* ---------- undo / redo for the open table ---------- */
+  const H = { undo: [], redo: [], present: null, max: 50 };
+  const histData = () => JSON.stringify({ cols: S.cols.map((c) => ({ name: c.name, unit: c.unit || "", formula: c.formula || null, values: c.formula ? [] : c.values })), n: S.n });
+  const histView = () => JSON.stringify({ plot: S.plot, stat: S.stat });
+  function histButtons() {
+    $("btnUndo").disabled = S.readonly || !H.undo.length;
+    $("btnRedo").disabled = S.readonly || !H.redo.length;
+  }
+  function histReset() { H.undo = []; H.redo = []; H.present = { d: histData(), v: histView() }; histButtons(); }
+  function histRecord() {
+    const d = histData();
+    if (H.present && d === H.present.d) return;
+    if (H.present) { H.present.v = H.present.v || histView(); H.undo.push(H.present); if (H.undo.length > H.max) H.undo.shift(); }
+    H.present = { d: d, v: histView() };
+    H.redo = [];
+    histButtons();
+  }
+  function histStep(dir) {
+    if (S.readonly) return;
+    const from = dir < 0 ? H.undo : H.redo, to = dir < 0 ? H.redo : H.undo;
+    if (!from.length || !H.present) return toast(dir < 0 ? "Nothing to undo." : "Nothing to redo.");
+    H.present.v = histView();
+    to.push(H.present);
+    const e = (H.present = from.pop()), d = JSON.parse(e.d);
+    const namesBefore = S.cols.map((c) => c.name).join("\u0001");
+    S.n = d.n;
+    S.cols = d.cols.map((c) => { const v = c.values.slice(); while (v.length < d.n) v.push(null); return { name: c.name, unit: c.unit, formula: c.formula, values: v }; });
+    C.recompute(S.cols, S.n);
+    S.example = false; S.fit = null; S.editFormula = -1; S.sel = []; S.selAnchor = -1;
+    S.page = Math.max(0, Math.min(S.page, Math.ceil(S.n / PAGE) - 1));
+    // plot and statistics settings point at columns, so they go back too when the columns themselves changed
+    if (S.cols.map((c) => c.name).join("\u0001") !== namesBefore) { const v = JSON.parse(e.v); Object.assign(S.plot, v.plot); Object.assign(S.stat, v.stat); }
+    renderAll(); histButtons();
+    toast(dir < 0 ? "Undone." : "Redone.");
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase(), undo = k === "z" && !e.shiftKey, redo = k === "y" || (k === "z" && e.shiftKey);
+    if ((!undo && !redo) || !inBench() || $("dlg").open || S.readonly) return;
+    const t = e.target;
+    if (t && t.matches) {
+      // while a cell or header is being typed in, Ctrl+Z belongs to the browser's own text undo
+      if (t.matches("#grid td[contenteditable]")) { const col = S.cols[+t.dataset.c]; if (!col || t.textContent.replace(/\u00a0/g, " ").trim() !== disp(col.values[+t.dataset.r])) return; }
+      else if (t.matches("#grid input[data-f]")) { const col = S.cols[+t.dataset.c]; if (!col || t.value !== (col[t.dataset.f] || "")) return; }
+      else if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (t.blur && t !== document.body) t.blur();
+    }
+    e.preventDefault();
+    histStep(undo ? -1 : 1);
+  });
+  $("btnUndo").addEventListener("click", () => histStep(-1));
+  $("btnRedo").addEventListener("click", () => histStep(1));
   function roBlock() {
     if (!S.readonly) return false;
     toast("A sequence is calculated from its step sheets. Edit those sheets instead.");
@@ -1081,6 +1135,7 @@
     savedJson = keep ? savedJson : snapshot();
     cur = sm; curSheet = sh;
     renderSheetTabs();
+    histReset();
     return true;
   }
   function renderSeqPanel() {
@@ -1173,6 +1228,7 @@
     savedJson = snapshot();
     cur = sm; curSheet = sh;
     renderSheetTabs();
+    histReset();
     return true;
   }
   $("btnBack").addEventListener("click", () => {

@@ -120,7 +120,9 @@ table.grid.reg, .grid.reg input[type="text"] { font-family: var(--body); }
 .seqsteps label.check { color: var(--ink); }
 .seqsteps .iconbtn { font-size: 14px; }
 .seqsteps .iconbtn:disabled { opacity: .3; cursor: default; }
-.seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+.seq-mode #btnUndo, .seq-mode #btnRedo, .seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
 .seq-mode .colhead input { cursor: default; }
 .dlgchecks { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 8px; }
 .dlgchecks label.check { color: var(--ink); font-size: 14px; }
@@ -287,6 +289,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
     <div class="panebar">
       <span class="grow" id="dims"></span>
       <label class="check"><input type="checkbox" id="copyHeaders" checked> with headers</label>
+      <button class="btn small" id="btnUndo" type="button" title="Undo the last change to this table (Ctrl+Z)" disabled>↶ Undo</button>
+      <button class="btn small" id="btnRedo" type="button" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
       <button class="btn small" id="btnCopy" type="button">Copy table</button>
       <button class="btn small save-only" id="btnCsv" type="button">Save CSV</button>
       <button class="btn small" id="btnAddRow" type="button">+ Row</button>
@@ -417,8 +421,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794389247"></script>
-<script src="core.js?v=1794389247"></script>
-<script src="app.js?v=1794389247"></script>
+<script src="config.js?v=1794389491"></script>
+<script src="core.js?v=1794389491"></script>
+<script src="app.js?v=1794389491"></script>
 </body>
 </html>
