@@ -93,7 +93,41 @@ table.grid { border-collapse: separate; border-spacing: 0; font-family: var(--mo
 .grid td.txt { text-align: left; }
 .grid td.calc { background: var(--sunken); color: var(--muted); }
 .colhead { display: flex; flex-direction: column; gap: 4px; }
-.colhead .line1 { display: flex; align-items: center; gap: 4px; }
+.colhead .line1 { display: flex; align-items: center; gap: 4px; cursor: pointer; border-radius: 4px; margin: -2px; padding: 2px; user-select: none; }
+.colhead .line1:hover { background: var(--accent-soft); }
+.grid thead th.selc { background: var(--accent-soft); box-shadow: inset 0 2px 0 var(--accent); }
+.grid td.selc, .grid td.calc.selc { background: var(--accent-soft); color: var(--ink); }
+table.grid.reg, .grid.reg input[type="text"] { font-family: var(--body); }
+.grid.reg thead th { min-width: 160px; }
+.grid.reg thead th.ck { min-width: 136px; }
+.grid.reg thead th.narrow, .grid.reg thead th.sel, .grid.reg thead tr.groups th { min-width: 0; }
+.menu { position: relative; }
+.menu summary { list-style: none; user-select: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu summary::after { content: "▾"; margin-left: 2px; color: var(--muted); }
+.menu[open] summary { border-color: var(--accent); }
+.menulist { position: absolute; right: 0; top: calc(100% + 4px); z-index: 6; min-width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 6px 18px rgba(10, 14, 20, .18); }
+.menulist button { border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.menulist button:hover, .menulist button:focus-visible { background: var(--accent-soft); color: var(--accent); }
+.seqpanel { padding: 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.seqpanel[hidden] { display: none; }
+.seqcols { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: flex-start; }
+.seqpanel .lbl { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.seqsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; min-width: 220px; }
+.seqsteps li { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.seqsteps li.off { border-style: dashed; background: none; }
+.seqsteps li .sp { flex: 1; }
+.seqsteps label.check { color: var(--ink); }
+.seqsteps .iconbtn { font-size: 14px; }
+.seqsteps .iconbtn:disabled { opacity: .3; cursor: default; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+.seq-mode #btnUndo, .seq-mode #btnRedo, .seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
+.seq-mode .colhead input { cursor: default; }
+.dlgchecks { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 8px; }
+.dlgchecks label.check { color: var(--ink); font-size: 14px; }
+.dlgchecks input:disabled + * , .dlgchecks label:has(input:disabled) { color: var(--muted); }
+.selinfo { padding: 5px 10px; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-bottom: 1px solid var(--line); }
 .colhead .ltr { font: 600 12px var(--body); background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 0 6px; }
 .colhead .sp { flex: 1; }
 .iconbtn { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; border-radius: 4px; font: 500 12px var(--body); }
@@ -167,6 +201,8 @@ body.drag::after { content: "Drop the file to import it"; position: fixed; inset
 .sheettabs .sp { flex: 1; }
 .sheettabs .iconbtn { margin-bottom: 4px; white-space: nowrap; }
 .dlginput { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 6px 8px; font-size: 14px; color: var(--ink); }
+a.btn { text-decoration: none; color: inherit; }
+.chip.sbx { background: #f6d8a8; color: #5a3a00; font-weight: 600; }
 .who { font-size: 12px; color: var(--muted); }
 .authcard { align-self: start; max-width: 480px; width: calc(100% - 32px); margin: 40px auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
 .authcard[hidden] { display: none; }
@@ -182,10 +218,14 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
     <button class="btn small bench-only" id="btnBack" type="button">&larr; Samples</button>
     <h1 id="viewTitle">Samples</h1>
     <span class="chip bench-only" id="dsChip" hidden>Example data</span>
+    <span class="chip sbx" id="sbxChip" hidden>Sandbox: test copy, separate from the live site</span>
     <span class="state" id="saveState" role="status"></span>
   </div>
   <div class="actions">
     <span class="who samples-only" id="whoAmI" hidden></span>
+    <button class="btn samples-only" id="btnCopyLive" type="button" hidden title="Replace the sandbox's test data with a copy of the live samples">Copy live data here</button>
+    <button class="btn samples-only" id="btnPublishData" type="button" hidden title="Replace the live site's data with the sandbox's data (asks for the PIN)">Publish sandbox data to live</button>
+    <a class="btn samples-only" id="lnkPublishCode" hidden target="_blank" rel="noopener" title="Opens GitHub, where Run workflow copies the sandbox's code to the live site">Publish code to live ↗</a>
     <button class="btn samples-only" id="btnRefresh" type="button" hidden>Refresh</button>
     <button class="btn samples-only" id="btnSignOut" type="button" hidden>Sign out</button>
     <button class="btn samples-only" id="btnCombine" type="button" title="Tick samples in the list, then plot them together">Plot selected</button>
@@ -200,7 +240,11 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <section class="pane" id="samplesView" aria-label="Samples">
   <div class="panebar">
     <span class="grow" id="regCount">Loading saved samples…</span>
-    <span class="note">Every column title can be edited. Open a sample to import, analyse and plot its data.</span>
+    <span class="note">Click a column title to rename it.</span>
+    <details class="menu"><summary class="btn small">Edit Sample information</summary>
+      <div class="menulist"><button type="button" data-colop="info-add">Add column</button><button type="button" data-colop="info-del">Delete column</button></div></details>
+    <details class="menu"><summary class="btn small">Edit Sample process</summary>
+      <div class="menulist"><button type="button" data-colop="proc-add">Add column</button><button type="button" data-colop="proc-del">Delete column</button></div></details>
   </div>
   <div class="tablewrap"><table class="grid reg" id="reg"></table></div>
 </section>
@@ -244,14 +288,18 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <main>
   <section class="pane" aria-label="Worksheet">
     <nav class="sheettabs" id="sheetTabs" role="tablist" aria-label="Sheets in this sample"></nav>
+    <div class="seqpanel" id="seqPanel" hidden></div>
     <div class="panebar">
       <span class="grow" id="dims"></span>
       <label class="check"><input type="checkbox" id="copyHeaders" checked> with headers</label>
+      <button class="btn small" id="btnUndo" type="button" title="Undo the last change to this table (Ctrl+Z)" disabled>↶ Undo</button>
+      <button class="btn small" id="btnRedo" type="button" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
       <button class="btn small" id="btnCopy" type="button">Copy table</button>
       <button class="btn small save-only" id="btnCsv" type="button">Save CSV</button>
       <button class="btn small" id="btnAddRow" type="button">+ Row</button>
       <button class="btn small" id="btnAddCol" type="button">+ Column</button>
     </div>
+    <div class="selinfo" id="selInfo" role="status" hidden></div>
     <div class="tablewrap"><table class="grid" id="grid"></table></div>
     <div class="pager" id="pager"></div>
   </section>
@@ -276,6 +324,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
         <label class="check"><input type="checkbox" id="pLogX"> log X</label>
         <label class="check"><input type="checkbox" id="pLogY"> log Y</label>
         <label class="check"><input type="checkbox" id="pFit" checked> show fitted curve</label>
+        <label class="check" id="pStepWrap" hidden><input type="checkbox" id="pStep" checked> colour each step</label>
       </div>
       <div class="field">Y columns<div class="ychips" id="pYs"></div></div>
       <div class="controls" id="pRightRow">
@@ -354,6 +403,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
   <h2 id="dlgTitle"></h2>
   <p class="note" id="dlgText"></p>
   <input type="text" id="dlgInput" class="dlginput" hidden autocomplete="off">
+  <select id="dlgSelect" class="dlginput" hidden aria-label="Column"></select>
+  <div id="dlgChecks" class="dlgchecks" hidden></div>
   <textarea id="dlgArea" spellcheck="false"></textarea>
   <div class="row" id="dlgBtns"></div>
 </dialog>
@@ -373,8 +424,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="lib/plotly.min.js"></script>
 <script src="lib/xlsx.full.min.js"></script>
 <script src="lib/supabase.js"></script>
-<script src="config.js?v=4"></script>
-<script src="core.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="config.js?v=1794391467"></script>
+<script src="core.js?v=1794391467"></script>
+<script src="app.js?v=1794391467"></script>
 </body>
 </html>

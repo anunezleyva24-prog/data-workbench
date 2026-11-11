@@ -8,8 +8,8 @@
   const SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "triangle-down", "x", "star"];
 
   const S = {
-    cols: [], n: 0, page: 0, example: true, editFormula: -1,
-    plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false },
+    cols: [], n: 0, page: 0, example: true, editFormula: -1, sel: [], selAnchor: -1, readonly: false, seq: null,
+    plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false, stepColors: true },
     stat: { type: "desc", x: 0, y: 1, order: 1, model: "expdec", expr: "a*exp(-x/b) + c", init: "", groups: [], paired: false },
     fit: null, statText: "",
   };
@@ -24,16 +24,21 @@
   function openDialog(o) {
     $("dlgTitle").textContent = o.title;
     $("dlgText").textContent = o.text || "";
-    const a = $("dlgArea"), inp = $("dlgInput");
-    inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || "";
+    const a = $("dlgArea"), inp = $("dlgInput"), pick = $("dlgSelect");
+    pick.hidden = !o.select;
+    pick.innerHTML = (o.select || []).map((x) => '<option value="' + esc(x.v) + '"' + (String(x.v) === String(o.selected) ? " selected" : "") + ">" + esc(x.t) + "</option>").join("");
+    inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || ""; inp.type = o.inputType || "text";
     a.hidden = o.area === undefined;
     a.value = o.area || ""; a.readOnly = !!o.readonly; a.placeholder = o.placeholder || "";
+    const cb = $("dlgChecks");
+    cb.hidden = !o.checks;
+    cb.innerHTML = (o.checks || []).map((x) => '<label class="check"><input type="checkbox" value="' + esc(x.v) + '"' + (x.checked ? " checked" : "") + (x.disabled ? " disabled" : "") + "> " + esc(x.t) + "</label>").join("");
     const b = $("dlgBtns");
     b.innerHTML = "";
     (o.actions || []).concat([{ label: o.closeLabel || "Cancel" }]).forEach((act) => {
       const btn = document.createElement("button");
       btn.type = "button"; btn.className = "btn" + (act.primary ? " primary" : ""); btn.textContent = act.label;
-      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(o.input !== undefined ? inp.value : a.value); });
+      btn.addEventListener("click", () => { $("dlg").close(); if (act.fn) act.fn(o.checks ? Array.from(cb.querySelectorAll("input:checked")).map((x) => x.value) : o.select ? pick.value : o.input !== undefined ? inp.value : a.value); });
       b.appendChild(btn);
     });
     $("dlg").showModal();
@@ -85,7 +90,7 @@
   function setData(cols, example) {
     S.n = Math.max.apply(null, cols.map((c) => c.values.length).concat([1]));
     cols.forEach((c) => { while (c.values.length < S.n) c.values.push(null); });
-    S.cols = cols; S.page = 0; S.example = !!example; S.fit = null; S.editFormula = -1;
+    S.cols = cols; S.page = 0; S.example = !!example; S.fit = null; S.editFormula = -1; S.sel = []; S.selAnchor = -1;
     C.recompute(S.cols, S.n);
     const nc = numCols();
     S.plot.x = nc.length > 1 ? nc[0] : -1;
@@ -94,6 +99,7 @@
     if (["hist", "box"].indexOf(S.plot.type) >= 0) S.plot.type = "scatter";
     S.stat.x = nc.length ? nc[0] : 0; S.stat.y = nc.length > 1 ? nc[1] : 0; S.stat.groups = nc.slice(1, 4);
     renderAll();
+    histRecord();
   }
   function remapAfterDelete(d) {
     const m = (i) => (i === d ? -1 : i > d ? i - 1 : i);
@@ -102,33 +108,93 @@
     T.x = Math.max(0, m(T.x)); T.y = Math.max(0, m(T.y)); T.groups = T.groups.map(m).filter((i) => i >= 0);
     S.fit = null; S.editFormula = -1;
   }
-  function changed() { S.example = false; C.recompute(S.cols, S.n); }
+  function changed() { S.example = false; C.recompute(S.cols, S.n); histRecord(); }
+
+  /* ---------- undo / redo for the open table ---------- */
+  const H = { undo: [], redo: [], present: null, max: 50 };
+  const histData = () => JSON.stringify({ cols: S.cols.map((c) => ({ name: c.name, unit: c.unit || "", formula: c.formula || null, values: c.formula ? [] : c.values })), n: S.n });
+  const histView = () => JSON.stringify({ plot: S.plot, stat: S.stat });
+  function histButtons() {
+    $("btnUndo").disabled = S.readonly || !H.undo.length;
+    $("btnRedo").disabled = S.readonly || !H.redo.length;
+  }
+  function histReset() { H.undo = []; H.redo = []; H.present = { d: histData(), v: histView() }; histButtons(); }
+  function histRecord() {
+    const d = histData();
+    if (H.present && d === H.present.d) return;
+    if (H.present) { H.present.v = H.present.v || histView(); H.undo.push(H.present); if (H.undo.length > H.max) H.undo.shift(); }
+    H.present = { d: d, v: histView() };
+    H.redo = [];
+    histButtons();
+  }
+  function histStep(dir) {
+    if (S.readonly) return;
+    const from = dir < 0 ? H.undo : H.redo, to = dir < 0 ? H.redo : H.undo;
+    if (!from.length || !H.present) return toast(dir < 0 ? "Nothing to undo." : "Nothing to redo.");
+    H.present.v = histView();
+    to.push(H.present);
+    const e = (H.present = from.pop()), d = JSON.parse(e.d);
+    const namesBefore = S.cols.map((c) => c.name).join("\u0001");
+    S.n = d.n;
+    S.cols = d.cols.map((c) => { const v = c.values.slice(); while (v.length < d.n) v.push(null); return { name: c.name, unit: c.unit, formula: c.formula, values: v }; });
+    C.recompute(S.cols, S.n);
+    S.example = false; S.fit = null; S.editFormula = -1; S.sel = []; S.selAnchor = -1;
+    S.page = Math.max(0, Math.min(S.page, Math.ceil(S.n / PAGE) - 1));
+    // plot and statistics settings point at columns, so they go back too when the columns themselves changed
+    if (S.cols.map((c) => c.name).join("\u0001") !== namesBefore) { const v = JSON.parse(e.v); Object.assign(S.plot, v.plot); Object.assign(S.stat, v.stat); }
+    renderAll(); histButtons();
+    toast(dir < 0 ? "Undone." : "Redone.");
+  }
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase(), undo = k === "z" && !e.shiftKey, redo = k === "y" || (k === "z" && e.shiftKey);
+    if ((!undo && !redo) || !inBench() || $("dlg").open || S.readonly) return;
+    const t = e.target;
+    if (t && t.matches) {
+      // while a cell or header is being typed in, Ctrl+Z belongs to the browser's own text undo
+      if (t.matches("#grid td[contenteditable]")) { const col = S.cols[+t.dataset.c]; if (!col || t.textContent.replace(/\u00a0/g, " ").trim() !== disp(col.values[+t.dataset.r])) return; }
+      else if (t.matches("#grid input[data-f]")) { const col = S.cols[+t.dataset.c]; if (!col || t.value !== (col[t.dataset.f] || "")) return; }
+      else if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (t.blur && t !== document.body) t.blur();
+    }
+    e.preventDefault();
+    histStep(undo ? -1 : 1);
+  });
+  $("btnUndo").addEventListener("click", () => histStep(-1));
+  $("btnRedo").addEventListener("click", () => histStep(1));
+  function roBlock() {
+    if (!S.readonly) return false;
+    toast("A sequence is calculated from its step sheets. Edit those sheets instead.");
+    return true;
+  }
 
   /* ---------- worksheet ---------- */
   function renderTable() {
     const g = $("grid");
     let h = '<thead><tr><th class="corner"></th>';
     S.cols.forEach((c, j) => {
-      h += '<th><div class="colhead"><div class="line1"><span class="ltr">' + C.letter(j) + '</span><span class="sp"></span>' +
-        '<button class="iconbtn" type="button" data-act="copycol" data-c="' + j + '" title="Copy this column">copy</button>' +
-        '<button class="iconbtn" type="button" data-act="delcol" data-c="' + j + '" title="Delete this column" aria-label="Delete column ' + C.letter(j) + '">×</button></div>' +
-        '<input id="cn' + j + '" data-f="name" data-c="' + j + '" value="' + esc(c.name) + '" aria-label="Name of column ' + C.letter(j) + '">' +
-        '<input id="cu' + j + '" class="unit" data-f="unit" data-c="' + j + '" value="' + esc(c.unit || "") + '" placeholder="unit" aria-label="Unit of column ' + C.letter(j) + '">' +
+      h += '<th data-hc="' + j + '"' + (S.sel.indexOf(j) >= 0 ? ' class="selc"' : "") + '><div class="colhead"><div class="line1" data-selcol="' + j + '" title="Click to select the whole column. Shift-click or Ctrl-click selects several."><span class="ltr">' + C.letter(j) + '</span><span class="sp"></span>' +
+        '<button class="iconbtn" type="button" data-act="copycol" data-c="' + j + '" title="Copy this column\'s data (without name and unit)">copy</button>' +
+        (S.readonly ? "" : '<button class="iconbtn" type="button" data-act="delcol" data-c="' + j + '" title="Delete this column" aria-label="Delete column ' + C.letter(j) + '">×</button>') + "</div>" +
+        '<input id="cn' + j + '" data-f="name" data-c="' + j + '" value="' + esc(c.name) + '"' + (S.readonly ? " readonly" : "") + ' aria-label="Name of column ' + C.letter(j) + '">' +
+        '<input id="cu' + j + '" class="unit" data-f="unit" data-c="' + j + '" value="' + esc(c.unit || "") + '"' + (S.readonly ? " readonly" : "") + ' placeholder="unit" aria-label="Unit of column ' + C.letter(j) + '">' +
         (c.formula ? '<button class="iconbtn fx" type="button" data-act="editfx" data-c="' + j + '" title="Edit formula">= ' + esc(c.formula) + "</button>" : "") +
         (c.error ? '<span class="err">' + esc(c.error) + "</span>" : "") + "</div></th>";
     });
     h += "</tr></thead><tbody>";
     const a = S.page * PAGE, b = Math.min(S.n, a + PAGE);
     for (let i = a; i < b; i++) {
-      h += '<tr><th class="rn">' + (i + 1) + '<button type="button" data-act="delrow" data-r="' + i + '" title="Delete row ' + (i + 1) + '" aria-label="Delete row ' + (i + 1) + '">×</button></th>';
+      h += '<tr><th class="rn">' + (i + 1) + (S.readonly ? "" : '<button type="button" data-act="delrow" data-r="' + i + '" title="Delete row ' + (i + 1) + '" aria-label="Delete row ' + (i + 1) + '">×</button>') + "</th>";
       S.cols.forEach((c, j) => {
         const v = c.values[i];
-        h += "<td" + (c.formula ? ' class="calc"' : ' contenteditable="true"' + (typeof v === "string" ? ' class="txt"' : "")) + ' data-r="' + i + '" data-c="' + j + '">' + esc(c.formula ? dispCalc(v) : disp(v)) + "</td>";
+        const cls = (c.formula ? "calc" : typeof v === "string" ? "txt" : "") + (S.sel.indexOf(j) >= 0 ? " selc" : "");
+        h += "<td" + (c.formula || S.readonly ? "" : ' contenteditable="true"') + (cls.trim() ? ' class="' + cls.trim() + '"' : "") + ' data-r="' + i + '" data-c="' + j + '">' + esc(c.formula ? dispCalc(v) : disp(v)) + "</td>";
       });
       h += "</tr>";
     }
     g.innerHTML = h + "</tbody>";
     $("dims").textContent = S.n + " rows × " + S.cols.length + " columns";
+    S.sel = S.sel.filter((i) => i < S.cols.length); paintSel();
     $("dsChip").hidden = !S.example;
     const pages = Math.ceil(S.n / PAGE), pg = $("pager");
     pg.innerHTML = pages > 1 ? '<button class="btn small" type="button" data-pg="-1"' + (S.page ? "" : " disabled") + '>Previous</button><span>Rows ' + (a + 1) + "–" + b + " of " + S.n + '</span><button class="btn small" type="button" data-pg="1"' + (S.page < pages - 1 ? "" : " disabled") + ">Next</button>" : "";
@@ -149,6 +215,7 @@
     changed(); refreshCalcCells(); $("dsChip").hidden = true; scheduleSide();
   }
   function pasteBlock(r0, c0, text) {
+    if (roBlock()) return;
     const rows = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n").map((l) => l.split("\t"));
     rows.forEach((row, dr) => {
       const r = r0 + dr;
@@ -191,13 +258,62 @@
     c[f] = e.target.value.trim() || (f === "name" ? C.letter(+e.target.dataset.c) : "");
     changed(); renderAll();
   });
+  /* whole-column selection, as in Excel or Origin: click the top strip of a column */
+  function columnsText(idx) {
+    const cols = idx.slice().sort((a, b) => a - b).map((i) => S.cols[i]);
+    let n = S.n;
+    while (n > 0 && cols.every((c) => c.values[n - 1] === null || c.values[n - 1] === undefined)) n--;
+    return C.toTSV(cols, n, false);
+  }
+  function paintSel() {
+    $("grid").querySelectorAll("[data-hc]").forEach((th) => th.classList.toggle("selc", S.sel.indexOf(+th.dataset.hc) >= 0));
+    $("grid").querySelectorAll("td[data-c]").forEach((td) => td.classList.toggle("selc", S.sel.indexOf(+td.dataset.c) >= 0));
+    const n = S.sel.length;
+    $("selInfo").hidden = !n;
+    if (n) $("selInfo").textContent = (n === 1 ? "Column " + C.letter(S.sel[0]) : n + " columns") + " selected: Ctrl+C copies the data, Ctrl+V pastes from the first row, Delete clears, Esc deselects";
+  }
+  function clearSel() { if (S.sel.length) { S.sel = []; S.selAnchor = -1; paintSel(); } }
+  $("grid").addEventListener("click", (e) => {
+    const strip = e.target.closest("[data-selcol]");
+    if (!strip || e.target.closest("button")) return;
+    const j = +strip.dataset.selcol;
+    if (e.shiftKey && S.selAnchor >= 0) { const a = Math.min(S.selAnchor, j), b = Math.max(S.selAnchor, j); S.sel = []; for (let i = a; i <= b; i++) S.sel.push(i); }
+    else if (e.ctrlKey || e.metaKey) { S.sel = S.sel.indexOf(j) >= 0 ? S.sel.filter((i) => i !== j) : S.sel.concat([j]); S.selAnchor = j; }
+    else { S.sel = S.sel.length === 1 && S.sel[0] === j ? [] : [j]; S.selAnchor = j; }
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const ws = window.getSelection && window.getSelection(); if (ws && ws.removeAllRanges) ws.removeAllRanges();
+    paintSel();
+  });
+  $("grid").addEventListener("focusin", (e) => { if (e.target.matches && e.target.matches("td, input")) clearSel(); });
+  const typingTarget = (t) => !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  document.addEventListener("copy", (e) => {
+    if (!inBench() || !S.sel.length || typingTarget(e.target) || $("dlg").open) return;
+    e.clipboardData.setData("text/plain", columnsText(S.sel));
+    e.preventDefault();
+    toast((S.sel.length === 1 ? "Column " + C.letter(S.sel[0]) : S.sel.length + " columns") + " copied (data only).");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!inBench() || !S.sel.length || typingTarget(e.target) || $("dlg").open) return;
+    if (e.key === "Escape") clearSel();
+    else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      if (roBlock()) return;
+      const idx = S.sel.filter((i) => !S.cols[i].formula);
+      if (!idx.length) return toast("Calculated columns cannot be cleared. Edit or remove their formula instead.");
+      openDialog({ title: "Clear " + (idx.length === 1 ? "column " + C.letter(idx[0]) : idx.length + " columns") + "?", text: "All values in the selected columns are removed. Names and units are kept. This cannot be undone.", actions: [{ label: "Clear values", primary: true, fn: () => {
+        idx.forEach((i) => { S.cols[i].values = S.cols[i].values.map(() => null); });
+        changed(); renderAll();
+      } }] });
+    }
+  });
   $("grid").addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const act = b.dataset.act, c = +b.dataset.c;
-    if (act === "copycol") copyText(C.toTSV([S.cols[c]], S.n, $("copyHeaders").checked), "Column " + C.letter(c));
+    if (act === "copycol") copyText(columnsText([c]), "Column " + C.letter(c) + " data");
     if (act === "delcol") {
       if (S.cols.length < 2) return toast("A table needs at least one column.");
+      S.sel = []; S.selAnchor = -1;
       S.cols.splice(c, 1); remapAfterDelete(c); changed(); renderAll();
     }
     if (act === "delrow") {
@@ -210,12 +326,14 @@
   });
   $("pager").addEventListener("click", (e) => { const b = e.target.closest("[data-pg]"); if (b) { S.page += +b.dataset.pg; renderTable(); } });
   $("btnAddRow").addEventListener("click", () => {
+    if (roBlock()) return;
     S.cols.forEach((c) => c.values.push(null)); S.n++; S.page = Math.ceil(S.n / PAGE) - 1;
     changed(); renderAll();
     const first = S.cols.findIndex((c) => !c.formula), td = first >= 0 && cellAt(S.n - 1, first);
     if (td) td.focus();
   });
   $("btnAddCol").addEventListener("click", () => {
+    if (roBlock()) return;
     S.cols.push({ name: C.letter(S.cols.length), unit: "", formula: null, values: Array.from({ length: S.n }, () => null) });
     changed(); renderAll();
     const w = document.querySelector(".tablewrap"); w.scrollLeft = w.scrollWidth;
@@ -226,17 +344,19 @@
 
   /* ---------- import ---------- */
   function importText(text) {
+    if (roBlock()) return;
     try { setData(C.parseText(text), false); toast("Imported " + S.n + " rows × " + S.cols.length + " columns."); }
     catch (e) { toast(e.message); }
   }
   function importSheet(wb, name) {
+    if (roBlock()) return;
     try {
       setData(C.parseRows(window.XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null })), false);
       toast('Imported sheet "' + name + '": ' + S.n + " rows × " + S.cols.length + " columns.");
     } catch (e) { toast(e.message); }
   }
   function handleFile(file) {
-    if (!file) return;
+    if (!file || roBlock()) return;
     const rd = new FileReader();
     rd.onerror = () => toast("The file could not be read.");
     if (/\.(xlsx|xls|ods)$/i.test(file.name)) {
@@ -254,17 +374,18 @@
     }
   }
   $("fileInput").addEventListener("change", (e) => { handleFile(e.target.files[0]); e.target.value = ""; });
-  $("btnPaste").addEventListener("click", () => openDialog({
+  $("btnPaste").addEventListener("click", () => !roBlock() && openDialog({
     title: "Paste data", text: "Paste rows copied from Excel, Origin or a text file. A first row of names is used as column headers; a second row of units is recognised too.",
     area: "", placeholder: "Time (s)\tSignal (mV)\n0\t1.02\n1\t0.87", actions: [{ label: "Import", primary: true, fn: (v) => (v.trim() ? importText(v) : toast("Nothing was pasted.")) }],
   }));
   const emptyCols = () => ["A", "B", "C"].map((nm) => ({ name: nm, unit: "", formula: null, values: Array.from({ length: 12 }, () => null) }));
-  $("btnNew").addEventListener("click", () => setData(emptyCols(), false));
+  $("btnNew").addEventListener("click", () => { if (!roBlock()) setData(emptyCols(), false); });
   document.addEventListener("paste", (e) => {
     const t = e.target;
     if (!inBench()) return;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (text && text.trim() && S.sel.length) { e.preventDefault(); pasteBlock(0, Math.min.apply(null, S.sel), text); return; }
     if (text && text.trim()) { e.preventDefault(); importText(text); }
   });
   let dragDepth = 0;
@@ -301,6 +422,7 @@
     $("pRight").innerHTML = P.ys.map((i) => '<label><input type="checkbox" id="pr' + i + '" value="' + i + '"' + (P.right.indexOf(i) >= 0 ? " checked" : "") + '><span class="sw" style="background:var(--s' + ((P.ys.indexOf(i) % 8) + 1) + ')"></span>' + esc(label(i)) + "</label>").join("");
     $("pLogY2").checked = P.logy2; $("pLogY2").parentElement.hidden = !P.right.length; $("pYRWrap").hidden = !P.right.length;
     $("pLogX").checked = P.logx; $("pLogY").checked = P.logy; $("pFit").checked = P.showFit;
+    $("pStepWrap").hidden = !S.seq; $("pStep").checked = P.stepColors !== false;
     $("pTitle").value = P.title; $("pXL").value = P.xl; $("pYL").value = P.yl; $("pYR").value = P.yr;
   }
   function plotLabels() {
@@ -323,12 +445,26 @@
       const col = S.cols[yi], color = tok("--s" + (k + 1)), onRight = xy && P.right.indexOf(yi) >= 0, name = col.name + (onRight ? " (right axis)" : "");
       if (P.type === "hist") { traces.push({ type: "histogram", x: C.clean(col.values), name: name, opacity: P.ys.length > 1 ? 0.7 : 1, marker: { color: color, line: { color: surface, width: 2 } } }); return; }
       if (P.type === "box") { traces.push({ type: "box", y: C.clean(col.values), name: name, boxpoints: "outliers", marker: { color: color }, line: { width: 2 } }); return; }
-      const x = [], y = [], err = [];
+      const x = [], y = [], err = [], ri = [];
       for (let i = 0; i < S.n; i++) {
         const yv = col.values[i], xv = P.x >= 0 ? S.cols[P.x].values[i] : i + 1;
         if (typeof yv !== "number" || xv === null || xv === undefined) continue;
-        x.push(xv); y.push(yv);
+        x.push(xv); y.push(yv); ri.push(i);
         if (P.err >= 0) { const ev = S.cols[P.err].values[i]; err.push(typeof ev === "number" ? ev : 0); }
+      }
+      if (S.seq && P.stepColors && P.type !== "bar" && P.x === 0) {
+        const stepCol = S.cols[S.cols.length - 1];
+        S.seq.bounds.forEach((bd, si) => {
+          const pick = ri.map((r, q) => (stepCol.values[r] === bd.name ? q : -1)).filter((q) => q >= 0);
+          if (!pick.length) return;
+          const c2 = tok("--s" + ((si % 8) + 1)), nm = (P.ys.length > 1 ? col.name + " · " : "") + bd.name;
+          const t2 = { type: "scatter", mode: P.type === "scatter" ? "markers" : P.type === "line" ? "lines" : "lines+markers", x: pick.map((q) => x[q]), y: pick.map((q) => y[q]), name: nm + (onRight ? " (right axis)" : ""),
+            marker: { color: c2, size: 9, symbol: SYMBOLS[k % 8], line: { color: surface, width: 1.5 } }, line: { color: c2, width: 2 }, hovertemplate: "%{x}<br><b>%{y}</b><extra>" + esc(nm) + "</extra>" };
+          if (onRight) t2.yaxis = "y2";
+          if (P.err >= 0 && k === 0) t2.error_y = { type: "data", array: pick.map((q) => err[q]), visible: true, color: c2, thickness: 1.2, width: 3 };
+          traces.push(t2);
+        });
+        return;
       }
       const tr = { x: x, y: y, name: name, hovertemplate: "%{x}<br><b>%{y}</b><extra>" + esc(name) + "</extra>" };
       if (onRight) tr.yaxis = "y2";
@@ -364,10 +500,18 @@
       layout.margin.r = 60;
     }
     if (!traces.length) layout.annotations = [{ text: "Choose at least one Y column", showarrow: false, font: { color: muted, size: 14 } }];
+    else if (S.seq && xy && P.x === 0 && !P.logx) stepMarks(layout, S.seq.bounds, muted);
     window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage", "lasso2d", "select2d"] });
+    requestAnimationFrame(() => { try { window.Plotly.Plots.resize(el); } catch (e) { /* not drawn yet */ } });
+  }
+  // thin dashed lines where one step ends and the next begins, with the step names along the top
+  function stepMarks(layout, bounds, color) {
+    layout.shapes = bounds.slice(1).map((bd) => ({ type: "line", xref: "x", yref: "paper", x0: bd.x, x1: bd.x, y0: 0, y1: 1, line: { color: color, width: 1, dash: "dash" } }));
+    layout.annotations = (layout.annotations || []).concat(bounds.map((bd) => ({ xref: "x", yref: "paper", x: bd.x, y: 1, xanchor: "left", yanchor: "top", xshift: 4, text: esc(bd.name), showarrow: false, font: { color: color, size: 11 } })));
   }
   function readPlotControls() {
     const P = S.plot;
+    P.stepColors = $("pStep").checked;
     P.type = $("pType").value; P.x = +$("pX").value; P.err = +$("pErr").value;
     P.logx = $("pLogX").checked; P.logy = $("pLogY").checked; P.showFit = $("pFit").checked;
     P.title = $("pTitle").value; P.xl = $("pXL").value; P.yl = $("pYL").value; P.yr = $("pYR").value; P.logy2 = $("pLogY2").checked;
@@ -434,6 +578,7 @@
   $("fExpr").addEventListener("input", previewFormula);
   $("fExpr").addEventListener("keydown", (e) => { if (e.key === "Enter") $("fAdd").click(); });
   $("fAdd").addEventListener("click", () => {
+    if (roBlock()) return;
     if (!previewFormula()) { if (!$("fExpr").value.trim()) toast("Type a formula first."); return; }
     const name = $("fName").value.trim(), unit = $("fUnit").value.trim(), expr = $("fExpr").value.trim();
     if (S.editFormula >= 0) Object.assign(S.cols[S.editFormula], { name: name || S.cols[S.editFormula].name, unit: unit, formula: expr });
@@ -444,7 +589,7 @@
   $("fCancel").addEventListener("click", () => { resetFormulaForm(); renderFormulaTab(); });
   $("fList").addEventListener("click", (e) => {
     const b = e.target.closest("[data-fx]");
-    if (!b) return;
+    if (!b || roBlock()) return;
     const j = +b.dataset.c;
     if (b.dataset.fx === "edit") startEditFormula(j);
     else { S.cols[j].formula = null; S.cols[j].error = null; if (S.editFormula === j) resetFormulaForm(); changed(); renderAll(); }
@@ -616,6 +761,7 @@
   /* ---------- storage: the artifact's database, or this browser as a fallback ---------- */
   const Store = { db: null, sb: null, remote: false, local: false, broken: false, email: "" };
   const CFG = window.DW_CONFIG || {};
+  const PFX = CFG.dataPrefix || "";
   const sbErr = (error) => { const e = new Error(error.message || "Request failed"); e.code = error.code === "42501" ? "not_granted" : error.code; return e; };
   const timeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms))]);
   Store.init = async function () {
@@ -628,32 +774,32 @@
     Store.local = !Store.db && !Store.remote;
   };
   Store.list = async function (prefix) {
-    const { data, error } = await timeout(Store.sb.from("docs").select("path,data").like("path", prefix + "%"), 15000, "The saved data could not be reached.");
+    const { data, error } = await timeout(Store.sb.from("docs").select("path,data").like("path", PFX + prefix + "%"), 15000, "The saved data could not be reached.");
     if (error) throw sbErr(error);
     return data || [];
   };
   Store.get = async function (path) {
     if (Store.remote) {
-      const { data, error } = await timeout(Store.sb.from("docs").select("data").eq("path", path).maybeSingle(), 15000, "The saved data could not be reached.");
+      const { data, error } = await timeout(Store.sb.from("docs").select("data").eq("path", PFX + path).maybeSingle(), 15000, "The saved data could not be reached.");
       if (error) throw sbErr(error);
       return data ? data.data : null;
     }
     if (Store.db) { const s = await timeout(Store.db.doc(path).get(), 10000, "The saved data could not be reached."); return s.exists ? JSON.parse(JSON.stringify(s.data())) : null; }
-    try { const v = localStorage.getItem("dw:" + path); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+    try { const v = localStorage.getItem("dw:" + PFX + path); return v ? JSON.parse(v) : null; } catch (e) { return null; }
   };
   Store.set = async function (path, data) {
     if (Store.remote) {
-      const { error } = await Store.sb.from("docs").upsert({ path: path, data: data, updated_at: new Date().toISOString(), updated_by: Store.email });
+      const { error } = await Store.sb.from("docs").upsert({ path: PFX + path, data: data, updated_at: new Date().toISOString(), updated_by: Store.email });
       if (error) throw sbErr(error);
       return;
     }
     if (Store.db) return Store.db.doc(path).set(data);
-    localStorage.setItem("dw:" + path, JSON.stringify(data));
+    localStorage.setItem("dw:" + PFX + path, JSON.stringify(data));
   };
   Store.del = async function (path) {
-    if (Store.remote) { const { error } = await Store.sb.from("docs").delete().eq("path", path); if (error) throw sbErr(error); return; }
+    if (Store.remote) { const { error } = await Store.sb.from("docs").delete().eq("path", PFX + path); if (error) throw sbErr(error); return; }
     if (Store.db) return Store.db.doc(path).delete();
-    localStorage.removeItem("dw:" + path);
+    localStorage.removeItem("dw:" + PFX + path);
   };
   function setState(msg, bad) { const el = $("saveState"); el.textContent = msg; el.classList.toggle("bad", !!bad); }
   const pend = {}, busy = {};
@@ -677,56 +823,74 @@
 
   /* ---------- samples registry ---------- */
   let R = null, cur = null, savedJson = "", dirtyTimer;
-  const NCOL = 5;
+  const NINFO = 8, NPROC = 4, MAXCOLS = 20; // NINFO/NPROC: the layout given to data saved before columns became editable
+  const newColId = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const seqIds = (n, p) => Array.from({ length: n }, (_, k) => p + k);
   const sampleName = (sm) => (sm.info[0] && sm.info[0].trim()) || "Sample " + (R.samples.indexOf(sm) + 1);
   function defaultRegistry() {
     return {
-      infoTitles: ["Sample name", "Composition", "Date prepared", "Batch", "Notes"],
-      procTitles: ["Synthesis", "Purification", "Drying", "Characterization", "Data analysis"],
-      samples: [{ id: "example", example: true, info: ["Example sample", "", "", "", "Example row with example data. Edit or delete it."], proc: [true, false, false, false, false], rows: 16, cols: 5 }],
+      infoTitles: ["Sample name", "Composition", "Date prepared", "Batch", "Notes", "Info 6", "Info 7", "Info 8"],
+      procTitles: ["Synthesis", "Purification", "Drying", "Characterization"],
+      infoIds: seqIds(NINFO, "i"), procIds: seqIds(NPROC, "p"),
+      samples: [{ id: "example", example: true, info: ["Example sample", "", "", "", "Example row with example data. Edit or delete it."], proc: [true, false, false, false], rows: 16, cols: 5 }],
     };
   }
   function normalize(r) {
-    const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
-    r.infoTitles = fix(r.infoTitles, (k) => "Info " + (k + 1)); r.procTitles = fix(r.procTitles, (k) => "Process " + (k + 1));
+    if (!Array.isArray(r.infoIds) || !r.infoIds.length) r.infoIds = seqIds(NINFO, "i");
+    if (!Array.isArray(r.procIds) || !r.procIds.length) r.procIds = seqIds(NPROC, "p");
+    const titles = (a, ids, word) => ids.map((_, k) => (Array.isArray(a) && a[k] !== null && a[k] !== undefined && String(a[k]).trim()) || word + " " + (k + 1));
+    r.infoTitles = titles(r.infoTitles, r.infoIds, "Info"); r.procTitles = titles(r.procTitles, r.procIds, "Process");
     r.samples = (Array.isArray(r.samples) ? r.samples : []).filter((s) => s && s.id);
-    r.samples.forEach(normSample);
+    r.samples.forEach((s) => normSample(s, r));
     return r;
   }
-  function normSample(s) {
-    const fix = (a, fill) => { a = Array.isArray(a) ? a.slice(0, NCOL) : []; while (a.length < NCOL) a.push(fill(a.length)); return a; };
-    s.info = fix(s.info, () => "").map(String); s.proc = fix(s.proc, () => false).map(Boolean);
+  // A sample keeps its values by column id (infoMap, procMap); info and proc are the same values in the order the columns are shown.
+  function normSample(s, reg) {
+    reg = reg || R;
+    const byPosition = (a, p) => { const m = {}; (Array.isArray(a) ? a : []).forEach((v, k) => { m[p + k] = v; }); return m; };
+    const isMap = (m) => m && typeof m === "object" && !Array.isArray(m);
+    s.infoMap = isMap(s.infoMap) ? s.infoMap : byPosition(s.info, "i");
+    s.procMap = isMap(s.procMap) ? s.procMap : byPosition(s.proc, "p");
+    s.info = reg.infoIds.map((id) => (s.infoMap[id] === null || s.infoMap[id] === undefined ? "" : String(s.infoMap[id])));
+    s.proc = reg.procIds.map((id) => !!s.procMap[id]);
     s.sheets = (Array.isArray(s.sheets) ? s.sheets : []).filter((h) => h && h.id);
     if (!s.sheets.length) s.sheets = [{ id: "main", name: "Data", rows: s.rows || 0, cols: s.cols || 0 }];
     return s;
   }
+  function packSample(sm) {
+    R.infoIds.forEach((id, k) => { sm.infoMap[id] = sm.info[k]; });
+    R.procIds.forEach((id, k) => { sm.procMap[id] = sm.proc[k]; });
+    return JSON.parse(JSON.stringify(sm));
+  }
+  const packTitles = () => ({ infoTitles: R.infoTitles.slice(), procTitles: R.procTitles.slice(), infoIds: R.infoIds.slice(), procIds: R.procIds.slice() });
   const sheetPath = (sm, sh) => (sh.id === "main" ? "datasets/" + sm.id : "datasets/" + sm.id + "/" + sh.id);
   function sheetSummary(sm) {
     if (sm.sheets.length > 1) return sm.sheets.length + " sheets";
     const h = sm.sheets[0];
     return h.rows ? h.rows + " × " + h.cols : "empty";
   }
-  function saveRegistry() { if (!Store.remote) save("lab/registry", JSON.parse(JSON.stringify(R))); }
+  function saveRegistry() { if (!Store.remote) save("lab/registry", Object.assign(packTitles(), { samples: R.samples.map(packSample) })); }
   // Online, each sample is its own row and the column titles are another, so people editing different samples never overwrite each other.
-  function saveTitles() { if (Store.remote) save("lab/titles", { infoTitles: R.infoTitles.slice(), procTitles: R.procTitles.slice() }); else saveRegistry(); }
-  function saveSample(sm) { if (Store.remote) save("samples/" + sm.id, JSON.parse(JSON.stringify(sm))); else saveRegistry(); }
+  function saveTitles() { if (Store.remote) save("lab/titles", packTitles()); else saveRegistry(); }
+  function saveSample(sm) { if (Store.remote) save("samples/" + sm.id, packSample(sm)); else saveRegistry(); }
   async function loadRemoteRegistry() {
     const [titles, rows] = await Promise.all([Store.get("lab/titles"), Store.list("samples/")]);
     const samples = rows.map((r) => r.data).filter((d) => d && d.id).sort((a, b) => (a.created || 0) - (b.created || 0));
     if (!titles && !samples.length) {
       const r = defaultRegistry();
       r.samples[0].created = 0;
-      await Store.set("lab/titles", { infoTitles: r.infoTitles, procTitles: r.procTitles });
+      await Store.set("lab/titles", { infoTitles: r.infoTitles, procTitles: r.procTitles, infoIds: r.infoIds, procIds: r.procIds });
       await Store.set("samples/example", r.samples[0]);
       return r;
     }
     const d = defaultRegistry();
-    return { infoTitles: (titles && titles.infoTitles) || d.infoTitles, procTitles: (titles && titles.procTitles) || d.procTitles, samples: samples };
+    if (!titles) return Object.assign(d, { samples: samples });
+    return { infoTitles: titles.infoTitles, procTitles: titles.procTitles, infoIds: titles.infoIds, procIds: titles.procIds, samples: samples };
   }
   async function loadRegistry() { return Store.remote ? loadRemoteRegistry() : Store.get("lab/registry"); }
   function renderRegistry() {
     if (!R) return;
-    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + NCOL + '">Sample information</th><th colspan="' + NCOL + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
+    let h = '<thead><tr class="groups"><th></th><th></th><th colspan="' + R.infoTitles.length + '">Sample information</th><th colspan="' + R.procTitles.length + '">Processes completed</th><th colspan="2">Data</th></tr><tr><th class="corner narrow">#</th><th class="sel narrow" title="Tick samples to plot them together">Plot</th>';
     R.infoTitles.forEach((t, k) => { h += '<th><input type="text" id="it' + k + '" data-title="info" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of information column ' + (k + 1) + '"></th>'; });
     R.procTitles.forEach((t, k) => { h += '<th class="ck"><input type="text" id="pt' + k + '" data-title="proc" data-k="' + k + '" value="' + esc(t) + '" aria-label="Title of process column ' + (k + 1) + '"></th>'; });
     h += '<th class="narrow">Measurements</th><th class="narrow"></th></tr></thead><tbody>';
@@ -736,7 +900,7 @@
       sm.proc.forEach((v, k) => { h += '<td class="ck"><input type="checkbox" id="sp' + i + "_" + k + '" data-s="' + i + '" data-k="' + k + '"' + (v ? " checked" : "") + ' aria-label="' + esc(R.procTitles[k]) + ", sample " + (i + 1) + '"></td>'; });
       h += '<td class="narrow"><button class="btn small" type="button" data-open="' + i + '">Open data</button><span class="dims">' + sheetSummary(sm) + '</span></td><td class="narrow"><button class="iconbtn" type="button" data-del="' + i + '" title="Delete this sample" aria-label="Delete sample ' + (i + 1) + '">×</button></td></tr>';
     });
-    if (!R.samples.length) h += '<tr><td colspan="' + (2 * NCOL + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
+    if (!R.samples.length) h += '<tr><td colspan="' + (R.infoTitles.length + R.procTitles.length + 4) + '" style="padding:16px">No samples yet. Use Add sample to create the first one.</td></tr>';
     $("reg").innerHTML = h + "</tbody>";
     const n = R.samples.length;
     $("regCount").textContent = n + (n === 1 ? " sample" : " samples");
@@ -762,9 +926,43 @@
       } }] });
     }
   });
+  /* ---------- add or delete columns of the sample list ---------- */
+  function addColumn(kind) {
+    const info = kind === "info", titles = info ? R.infoTitles : R.procTitles, ids = info ? R.infoIds : R.procIds;
+    if (titles.length >= MAXCOLS) return toast("This section already has " + MAXCOLS + " columns, the most it can hold.");
+    openDialog({ title: info ? "Add a Sample information column" : "Add a Sample process column", text: info ? "The new column is added at the end of the Sample information section, for every sample." : "The new column is added at the end of the Processes completed section, as a tick box for every sample.", input: "", placeholder: "Column title", actions: [{ label: "Add column", primary: true, fn: (v) => {
+      titles.push(v.trim() || (info ? "Info " : "Process ") + (titles.length + 1)); ids.push(newColId(info ? "i" : "p"));
+      R.samples.forEach((sm) => { if (info) sm.info.push(""); else sm.proc.push(false); });
+      renderRegistry(); saveTitles();
+      const el = $((info ? "it" : "pt") + (titles.length - 1)); if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } }] });
+  }
+  function deleteColumn(kind) {
+    const info = kind === "info", titles = info ? R.infoTitles : R.procTitles, ids = info ? R.infoIds : R.procIds, first = info ? 1 : 0;
+    if (titles.length <= 1) return toast(info ? "The first column holds the sample's name and cannot be deleted." : "This section needs at least one column.");
+    const choices = titles.map((t, k) => ({ v: k, t: t })).slice(first);
+    openDialog({ title: info ? "Delete a Sample information column" : "Delete a Sample process column", text: "Choose the column to delete. It disappears for everyone, together with what each sample has in it. This cannot be undone." + (info ? " The first column holds the sample's name, so it cannot be deleted." : ""), select: choices, selected: titles.length - 1, actions: [{ label: "Delete column", primary: true, fn: (v) => {
+      const k = +v;
+      if (!(k >= first && k < titles.length)) return;
+      const name = titles[k];
+      titles.splice(k, 1); ids.splice(k, 1);
+      R.samples.forEach((sm) => { if (info) sm.info.splice(k, 1); else sm.proc.splice(k, 1); });
+      if (info) CMP.group = "all";
+      renderRegistry(); saveTitles(); toast("Column " + name + " deleted.");
+    } }] });
+  }
+  $("samplesView").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-colop]");
+    if (!b || !R) return;
+    b.closest("details").open = false;
+    const [kind, op] = b.dataset.colop.split("-");
+    if (op === "add") addColumn(kind); else deleteColumn(kind);
+  });
+  document.addEventListener("click", (e) => { document.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; }); });
+
   $("btnAddSample").addEventListener("click", () => {
     if (!R) return;
-    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: ["", "", "", "", ""], proc: [false, false, false, false, false], rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
+    const sm = { id: "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), created: Date.now(), info: R.infoIds.map(() => ""), proc: R.procIds.map(() => false), infoMap: {}, procMap: {}, rows: 0, cols: 0, sheets: [{ id: "main", name: "Data", rows: 0, cols: 0 }] };
     R.samples.push(sm);
     renderRegistry(); saveSample(sm);
     const el = $("si" + (R.samples.length - 1) + "_0");
@@ -773,6 +971,7 @@
 
   /* ---------- one sample's workbench ---------- */
   function snapshot() {
+    if (S.readonly) return JSON.stringify({ cols: [], n: 0, seqView: true, names: S.cols.map((c) => c.name), plot: S.plot, stat: S.stat });
     return JSON.stringify({ cols: S.cols.map((c) => ({ name: c.name, unit: c.unit || "", formula: c.formula || null, values: c.formula ? [] : c.values })), n: S.n, plot: S.plot, stat: S.stat });
   }
   function markDirty() { if (!cur) return; clearTimeout(dirtyTimer); dirtyTimer = setTimeout(flush, 1200); }
@@ -784,6 +983,7 @@
     savedJson = j;
     if (j.length > 250000) return setState("Not saved: this table is too large to store (about 20,000 values at most). It stays here until you leave the page.", true);
     save(sheetPath(cur, curSheet), JSON.parse(j));
+    if (S.readonly) return;
     const filled = S.cols.some((c) => c.values.some((v) => v !== null));
     const rows = filled ? S.n : 0, ncols = filled ? S.cols.length : 0;
     if (curSheet.rows !== rows || curSheet.cols !== ncols) {
@@ -807,12 +1007,14 @@
     let h = "";
     cur.sheets.forEach((sh, i) => {
       const on = sh === curSheet;
-      h += '<button type="button" role="tab" aria-selected="' + on + '" data-sheet="' + i + '" title="' + (on ? "Double-click to rename" : "Open this sheet") + '">' + esc(sh.name || "Sheet " + (i + 1)) + "</button>";
+      h += '<button type="button" role="tab" aria-selected="' + on + '" data-sheet="' + i + '" title="' + (on ? "Double-click to rename" : "Open this sheet") + '">' + (sh.type === "seq" ? "⏱ " : "") + esc(sh.name || "Sheet " + (i + 1)) + "</button>";
     });
-    h += '<button type="button" class="add" id="sheetAdd" title="Add a sheet to this sample">+ Sheet</button><span class="sp"></span>';
+    h += '<button type="button" class="add" id="sheetAdd" title="Add a sheet to this sample">+ Sheet</button>';
+    h += '<button type="button" class="add" id="sheetSeq" title="Chain sheets of this sample one after the other on a single time axis">+ Sequence</button><span class="sp"></span>';
     h += '<button type="button" class="iconbtn" id="sheetRename">Rename</button>';
     if (cur.sheets.length > 1) h += '<button type="button" class="iconbtn" id="sheetDel">Delete sheet</button>';
     box.innerHTML = h;
+    renderSeqPanel();
   }
   const SHEET_IDEAS = "e.g. Swelling, Rheology, Conductivity, FTIR, DSC";
   $("sheetTabs").addEventListener("click", (e) => {
@@ -825,13 +1027,23 @@
         cur.sheets.push(sh); saveSample(cur); openSheet(cur, sh);
       } }] });
     }
+    if (t.id === "sheetSeq") {
+      const taken = cur.sheets.map((h) => key(h.name));
+      let nm = "Sequence"; for (let q = 2; taken.indexOf(key(nm)) >= 0; q++) nm = "Sequence " + q;
+      openDialog({ title: "New sequence in " + sampleName(cur), text: "A sequence chains sheets of this sample one after the other on one time axis: each step starts where the previous one ended. Give it the same name in every sample you want to compare.", input: nm, placeholder: "Sequence name", actions: [{ label: "Add sequence", primary: true, fn: (v) => {
+        const sh = { id: "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: v.trim() || nm, type: "seq", rows: 0, cols: 0, seq: { steps: cur.sheets.filter((h) => h.type !== "seq").map((h) => h.id), x: "", gap: 0, zero: true } };
+        cur.sheets.push(sh); saveSample(cur); openSheet(cur, sh);
+      } }] });
+    }
     if (t.id === "sheetRename") renameSheet();
     if (t.id === "sheetDel") {
       const sh = curSheet;
+      if (sh.type !== "seq" && cur.sheets.filter((h) => h.type !== "seq").length < 2) return toast("A sample needs at least one data sheet. Delete the sequences first, or add another sheet.");
       openDialog({ title: "Delete sheet " + sh.name + "?", text: "This sheet's table, formulas and plot settings are removed for good. The sample's other sheets are kept.", actions: [{ label: "Delete sheet", primary: true, fn: () => {
         clearTimeout(dirtyTimer);
         const i = cur.sheets.indexOf(sh);
         cur.sheets = cur.sheets.filter((x) => x !== sh);
+        cur.sheets.forEach((h) => { if (h.type === "seq" && h.seq) h.seq.steps = (h.seq.steps || []).filter((id) => id !== sh.id); });
         if (sh.id === "main") { cur.rows = 0; cur.cols = 0; }
         saveSample(cur);
         Store.del(sheetPath(cur, sh)).catch(() => {});
@@ -848,11 +1060,161 @@
       sh.name = v.trim(); saveSample(cur); renderSheetTabs();
     } }] });
   }
+  /* ---------- sequence: sheets of one sample chained on a single time axis ---------- */
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function settle() { for (let q = 0; q < 100 && (Object.keys(pend).length || Object.values(busy).some(Boolean)); q++) await sleep(50); }
+  async function loadSheetCols(sm, sh) {
+    if (sh.type === "seq") { const q = await buildSequence(sm, sh); return q.n ? q : null; }
+    const d = await Store.get(sheetPath(sm, sh));
+    let cols = null, n = 0;
+    if (d && Array.isArray(d.cols) && d.cols.length) {
+      n = d.n || 1;
+      cols = d.cols.map((c) => { const v = Array.isArray(c.values) ? c.values.slice() : []; while (v.length < n) v.push(null); return { name: String(c.name || ""), unit: c.unit || "", formula: c.formula || null, values: v }; });
+    } else if (sm.example && sh.id === "main") { cols = exampleCols(); n = Math.max.apply(null, cols.map((c) => c.values.length)); cols.forEach((c) => { while (c.values.length < n) c.values.push(null); }); }
+    if (!cols) return null;
+    C.recompute(cols, n);
+    return { cols: cols, n: n };
+  }
+  async function buildSequence(sm, sh) {
+    await settle();
+    const q = sh.seq || {}, out = { cols: [], n: 0, bounds: [], notes: [], timeNames: [], x: "" }, loaded = [];
+    const steps = (q.steps || []).map((id) => sm.sheets.find((h) => h.id === id && h.type !== "seq")).filter(Boolean);
+    for (const st of steps) {
+      let r = null;
+      try { r = await loadSheetCols(sm, st); } catch (e) { out.notes.push(st.name + " could not be loaded"); continue; }
+      if (!r) { out.notes.push(st.name + " is empty"); continue; }
+      loaded.push({ sh: st, cols: r.cols, n: r.n });
+    }
+    if (!loaded.length) return out;
+    const numeric = (c) => c.values.some((v) => typeof v === "number");
+    const inAll = loaded[0].cols.filter(numeric).filter((c) => loaded.every((L) => L.cols.some((d) => key(d.name) === key(c.name) && numeric(d))));
+    out.timeNames = inAll.map((c) => c.name);
+    const tcol = inAll.find((c) => key(c.name) === key(q.x)) || inAll[0];
+    if (!tcol) { out.notes.push("the step sheets have no numeric column with the same name to use as time"); return out; }
+    out.x = tcol.name;
+    const others = inAll.filter((c) => c !== tcol), T = [], Y = others.map(() => []), stepv = [];
+    const gap = +q.gap || 0, zero = q.zero !== false, tidy = (v) => Number(v.toPrecision(12));
+    let offset = 0;
+    loaded.forEach((L) => {
+      const tc = L.cols.find((c) => key(c.name) === key(tcol.name)), ycs = others.map((o) => L.cols.find((c) => key(c.name) === key(o.name)));
+      const rows = [];
+      for (let i = 0; i < L.n; i++) if (typeof tc.values[i] === "number") rows.push(i);
+      if (!rows.length) { out.notes.push(L.sh.name + " has no time values"); return; }
+      const ts = rows.map((i) => tc.values[i]), lo = Math.min.apply(null, ts), hi = Math.max.apply(null, ts), t0 = zero ? lo : 0;
+      out.bounds.push({ x: tidy(offset + lo - t0), name: L.sh.name });
+      rows.forEach((i) => { T.push(tidy(tc.values[i] - t0 + offset)); ycs.forEach((yc, k) => Y[k].push(typeof yc.values[i] === "number" ? yc.values[i] : null)); stepv.push(L.sh.name); });
+      offset = offset + hi - t0 + gap;
+    });
+    out.cols = [{ name: tcol.name, unit: tcol.unit || "", formula: null, values: T }].concat(others.map((o, k) => ({ name: o.name, unit: o.unit || "", formula: null, values: Y[k] })), [{ name: "Step", unit: "", formula: null, values: stepv }]);
+    out.n = T.length;
+    return out;
+  }
+  async function openSeq(sm, sh, keep) {
+    let q, d = null;
+    try { q = await buildSequence(sm, sh); if (!keep) d = await Store.get(sheetPath(sm, sh)); }
+    catch (e) { toast("The sequence could not be loaded. Try again."); return false; }
+    const saved = keep ? { plot: JSON.parse(JSON.stringify(S.plot)), names: S.cols.map((c) => c.name), stat: null } : d;
+    cur = null;
+    $("viewTitle").textContent = sampleName(sm);
+    S.readonly = true;
+    S.seq = { bounds: q.bounds, notes: q.notes, timeNames: q.timeNames, x: q.x };
+    if (!keep) { S.stat.type = "desc"; S.plot.type = "linesym"; S.plot.stepColors = true; }
+    setData(q.n ? q.cols : [{ name: "Time", unit: "", formula: null, values: [null] }], false);
+    if (saved && saved.plot) {
+      // settings are remembered by column name, because the columns depend on the step sheets
+      const names = Array.isArray(saved.names) ? saved.names : [], P = saved.plot, def = { x: S.plot.x, ys: S.plot.ys.slice() };
+      const at = (i) => (i >= 0 && names[i] !== undefined ? S.cols.findIndex((c) => c.name === names[i]) : -1);
+      Object.assign(S.plot, P);
+      S.plot.x = P.x === -1 ? -1 : at(P.x) >= 0 ? at(P.x) : def.x;
+      S.plot.ys = (P.ys || []).map(at).filter((i) => i >= 0); if (!S.plot.ys.length) S.plot.ys = def.ys;
+      S.plot.err = at(P.err); S.plot.right = (P.right || []).map(at).filter((i) => i >= 0);
+      if (saved.stat && names.length === S.cols.length && names.every((nm, i) => nm === S.cols[i].name)) Object.assign(S.stat, saved.stat);
+    }
+    renderSide();
+    clearTimeout(dirtyTimer);
+    savedJson = keep ? savedJson : snapshot();
+    cur = sm; curSheet = sh;
+    renderSheetTabs();
+    histReset();
+    return true;
+  }
+  function renderSeqPanel() {
+    const box = $("seqPanel"), on = !!(cur && curSheet && curSheet.type === "seq");
+    document.body.classList.toggle("seq-mode", on);
+    box.hidden = !on;
+    if (!on) { box.innerHTML = ""; return; }
+    const q = curSheet.seq, data = cur.sheets.filter((h) => h.type !== "seq");
+    const inSeq = q.steps.map((id) => data.find((h) => h.id === id)).filter(Boolean), rest = data.filter((h) => inSeq.indexOf(h) < 0);
+    let h = '<div class="seqcols"><div><div class="lbl">Steps, in order</div><ol class="seqsteps">';
+    inSeq.forEach((st, i) => {
+      h += '<li><label class="check"><input type="checkbox" data-step="' + esc(st.id) + '" checked> ' + (i + 1) + ". " + esc(st.name) + '</label><span class="sp"></span>' +
+        '<button type="button" class="iconbtn" data-mv="-1" data-id="' + esc(st.id) + '"' + (i ? "" : " disabled") + ' title="Move earlier" aria-label="Move ' + esc(st.name) + ' earlier">↑</button>' +
+        '<button type="button" class="iconbtn" data-mv="1" data-id="' + esc(st.id) + '"' + (i < inSeq.length - 1 ? "" : " disabled") + ' title="Move later" aria-label="Move ' + esc(st.name) + ' later">↓</button></li>';
+    });
+    rest.forEach((st) => { h += '<li class="off"><label class="check"><input type="checkbox" data-step="' + esc(st.id) + '"> ' + esc(st.name) + "</label></li>"; });
+    h += '</ol></div><div class="controls">' +
+      '<label class="field">Time column <select id="seqX">' + (S.seq.timeNames.length ? S.seq.timeNames.map((nm) => '<option value="' + esc(nm) + '"' + (key(nm) === key(S.seq.x) ? " selected" : "") + ">" + esc(nm) + "</option>").join("") : "<option>none found</option>") + "</select></label>" +
+      '<label class="field">Gap between steps <input type="text" id="seqGap" inputmode="decimal" size="6" value="' + esc(String(+q.gap || 0)) + '"></label>' +
+      '<label class="check"><input type="checkbox" id="seqZero"' + (q.zero !== false ? " checked" : "") + "> start every step at 0</label>" +
+      '<button type="button" class="btn small" id="seqCopy">Copy setup to other samples</button></div></div>';
+    h += '<p class="note">The table below is calculated from the ticked sheets and updates when they change. It keeps the columns that every step has, matched by name.' + (S.seq.notes.length ? " Left out: " + esc(S.seq.notes.join("; ")) + "." : "") + "</p>";
+    box.innerHTML = h;
+  }
+  async function seqChanged() { saveSample(cur); await openSeq(cur, curSheet, true); markDirty(); }
+  $("seqPanel").addEventListener("change", (e) => {
+    if (!cur || !curSheet || curSheet.type !== "seq") return;
+    const t = e.target, q = curSheet.seq;
+    if (t.dataset.step !== undefined) q.steps = t.checked ? q.steps.concat([t.dataset.step]) : q.steps.filter((id) => id !== t.dataset.step);
+    else if (t.id === "seqX") q.x = t.value;
+    else if (t.id === "seqGap") { const v = Number(String(t.value).replace(",", ".")); q.gap = isFinite(v) && v >= 0 ? v : 0; }
+    else if (t.id === "seqZero") q.zero = t.checked;
+    else return;
+    seqChanged();
+  });
+  $("seqPanel").addEventListener("click", (e) => {
+    if (!cur || !curSheet || curSheet.type !== "seq") return;
+    const mv = e.target.closest("[data-mv]");
+    if (mv) {
+      const q = curSheet.seq, live = q.steps.filter((id) => cur.sheets.some((h) => h.id === id && h.type !== "seq"));
+      const i = live.indexOf(mv.dataset.id), j = i + +mv.dataset.mv;
+      if (i < 0 || j < 0 || j >= live.length) return;
+      live.splice(j, 0, live.splice(i, 1)[0]); q.steps = live;
+      seqChanged();
+    } else if (e.target.id === "seqCopy") copySeqSetup();
+  });
+  function copySeqSetup() {
+    const src = curSheet, me = cur;
+    const stepNames = src.seq.steps.map((id) => me.sheets.find((h) => h.id === id && h.type !== "seq")).filter(Boolean).map((h) => h.name);
+    const others = R.samples.filter((sm) => sm !== me);
+    if (!stepNames.length) return toast("Tick at least one step first.");
+    if (!others.length) return toast("There are no other samples yet.");
+    const has = (sm) => stepNames.filter((nm) => sm.sheets.some((h) => h.type !== "seq" && key(h.name) === key(nm))).length;
+    const checks = others.map((sm) => { const k = has(sm); return { v: sm.id, t: sampleName(sm) + (k === stepNames.length ? "" : k ? " (has " + k + " of the " + stepNames.length + " step sheets)" : " (none of the step sheets)"), checked: k === stepNames.length, disabled: !k }; });
+    openDialog({ title: "Copy this sequence setup to other samples", text: "Each ticked sample gets a sequence named " + src.name + " with the same step order and settings. Steps are matched by sheet name: " + stepNames.join(", ") + ". A sample that already has a sequence with this name has it updated. Sample data is not changed.", checks: checks, actions: [{ label: "Copy setup", primary: true, fn: async (ids) => {
+      let done = 0;
+      for (const id of ids) {
+        const sm = R.samples.find((x) => x.id === id);
+        if (!sm) continue;
+        if (Store.remote) { try { const fresh = await Store.get("samples/" + id); if (fresh) Object.assign(sm, normSample(fresh)); } catch (e) { continue; } }
+        const steps = stepNames.map((nm) => sm.sheets.find((h) => h.type !== "seq" && key(h.name) === key(nm))).filter(Boolean).map((h) => h.id);
+        if (!steps.length) continue;
+        const setup = { steps: steps, x: src.seq.x || S.seq.x || "", gap: +src.seq.gap || 0, zero: src.seq.zero !== false };
+        const old = sm.sheets.find((h) => h.type === "seq" && key(h.name) === key(src.name));
+        if (old) old.seq = setup;
+        else sm.sheets.push({ id: "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: src.name, type: "seq", rows: 0, cols: 0, seq: setup });
+        saveSample(sm); done++;
+      }
+      toast(done ? "Sequence setup copied to " + done + (done === 1 ? " sample." : " samples.") : "No sample was changed.");
+    } }] });
+  }
+
   async function openSheet(sm, sh) {
     if (cur && curSheet) flush();
+    if (sh.type === "seq") return openSeq(sm, sh, false);
     let d = null;
     try { d = await Store.get(sheetPath(sm, sh)); } catch (e) { toast("The saved data for this sheet could not be loaded. Try again."); return false; }
     cur = null;
+    S.readonly = false; S.seq = null;
     $("viewTitle").textContent = sampleName(sm);
     if (d && Array.isArray(d.cols) && d.cols.length) {
       const n = d.n || 1;
@@ -866,6 +1228,7 @@
     savedJson = snapshot();
     cur = sm; curSheet = sh;
     renderSheetTabs();
+    histReset();
     return true;
   }
   $("btnBack").addEventListener("click", () => {
@@ -904,19 +1267,14 @@
   async function loadCombine() {
     const token = ++CMP.token, sets = [], missing = [];
     $("cNote").textContent = "Loading the selected samples…";
+    await settle();
     for (const sm of CMP.samples) {
       const sh = sm.sheets.find((h) => key(h.name) === key(CMP.sheet));
       if (!sh) { missing.push(sampleName(sm) + " (no sheet named " + CMP.sheet + ")"); continue; }
-      let d = null;
-      try { d = await Store.get(sheetPath(sm, sh)); } catch (e) { missing.push(sampleName(sm) + " (could not be loaded)"); continue; }
-      let cols = null, n = 0;
-      if (d && Array.isArray(d.cols) && d.cols.length) {
-        n = d.n || 1;
-        cols = d.cols.map((c) => { const v = Array.isArray(c.values) ? c.values.slice() : []; while (v.length < n) v.push(null); return { name: String(c.name || ""), unit: c.unit || "", formula: c.formula || null, values: v }; });
-      } else if (sm.example && sh.id === "main") { cols = exampleCols(); n = Math.max.apply(null, cols.map((c) => c.values.length)); cols.forEach((c) => { while (c.values.length < n) c.values.push(null); }); }
-      if (!cols) { missing.push(sampleName(sm) + " (empty sheet)"); continue; }
-      C.recompute(cols, n);
-      sets.push({ sm: sm, cols: cols, n: n });
+      let r = null;
+      try { r = await loadSheetCols(sm, sh); } catch (e) { missing.push(sampleName(sm) + " (could not be loaded)"); continue; }
+      if (!r) { missing.push(sampleName(sm) + (sh.type === "seq" ? " (empty sequence)" : " (empty sheet)")); continue; }
+      sets.push({ sm: sm, cols: r.cols, n: r.n, bounds: r.bounds || null });
     }
     if (token !== CMP.token) return;
     CMP.sets = sets; CMP.missing = missing;
@@ -940,7 +1298,7 @@
       for (let i = 0; i < st.n; i++) { const yv = yc.values[i], xv = xc ? xc.values[i] : i + 1; if (typeof yv === "number" && typeof xv === "number") { x.push(xv); y.push(yv); } }
       if (!x.length) { skipped.push(sampleName(st.sm) + " (no numeric data in these columns)"); return; }
       xCol = xCol || xc; yCol = yCol || yc;
-      curves.push({ name: sampleName(st.sm), sm: st.sm, x: x, y: y });
+      curves.push({ name: sampleName(st.sm), sm: st.sm, x: x, y: y, set: st });
     });
     let series = [], interpolated = false;
     if (CMP.fn === "overlap") series = curves.map((c) => ({ name: c.name, x: c.x, y: c.y }));
@@ -976,6 +1334,7 @@
     if (!document.body.classList.contains("view-combine")) return;
     if (!window.Plotly) { el.innerHTML = '<p class="note bad" style="padding:12px">The plotting library did not load. Check the connection and reload the page.</p>'; return; }
     const B = (CMP.built = buildCombine());
+    let stepsDiffer = false;
     const css = getComputedStyle(document.documentElement), tok = (n) => css.getPropertyValue(n).trim();
     const surface = tok("--surface"), ink = tok("--ink"), muted = tok("--muted");
     const mode = CMP.type === "scatter" ? "markers" : CMP.type === "line" ? "lines" : "lines+markers";
@@ -998,11 +1357,19 @@
       hovermode: "closest", hoverlabel: { bgcolor: surface, bordercolor: tok("--line"), font: { color: ink } },
     };
     if (!traces.length) layout.annotations = [{ text: "No data to plot for this sheet and these columns", showarrow: false, font: { color: muted, size: 14 } }];
+    else if (!CMP.logx) {
+      // step boundaries are drawn when every plotted sample is a sequence on its time column and they all agree on where the steps start
+      const bs = B.curves.map((c) => (c.set.bounds && key(c.set.cols[0].name) === key(CMP.x) ? c.set.bounds : null)), b0 = bs[0];
+      const agree = b0 && b0.length && bs.every((b) => b && b.length === b0.length && b.every((v, i) => v.name === b0[i].name && Math.abs(v.x - b0[i].x) <= 1e-6 * Math.max(1, Math.abs(b0[i].x))));
+      if (agree) stepMarks(layout, b0, muted);
+      else if (b0 && bs.every(Boolean)) stepsDiffer = true;
+    }
     const left = CMP.missing.concat(B.skipped);
     let note = (CMP.fn === "merge" ? "Averaging " : "Showing ") + B.curves.length + " of " + CMP.samples.length + " selected samples: " + B.curves.map((c) => c.name).join(", ") + ".";
     if (left.length) note += " Not included: " + left.join("; ") + ".";
     if (CMP.fn === "merge" && B.interpolated) note += " The samples do not share the same X values, so each one is interpolated onto the X values of the first sample in its group, over the X range they all cover.";
     if (CMP.fn === "merge" && CMP.sd && B.series.some((sr) => sr.members.length < 2)) note += " A curve from a single sample has no error bars.";
+    if (stepsDiffer) note += " The steps do not start at the same times in every sample, so no step lines are drawn.";
     $("cNote").textContent = note;
     window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage", "lasso2d", "select2d"] });
     requestAnimationFrame(() => { try { window.Plotly.Plots.resize(el); } catch (e) { /* not drawn yet */ } });
@@ -1075,6 +1442,80 @@
   $("btnSignOut").addEventListener("click", () => { flush(); signOut(); });
   $("authOut").addEventListener("click", signOut);
 
+  if (CFG.sandbox) {
+    document.title = "Data Workbench (sandbox)";
+    $("sbxChip").hidden = false;
+  }
+  /* ---------- sandbox only: move data between the sandbox and the live site ---------- */
+  const BACKUP = "backup/"; // the live data as it was before the last publish
+  const inSandbox = () => !!(CFG.sandbox && PFX && Store.remote);
+  async function allDocs() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const r = await Store.sb.from("docs").select("path,data").order("path").range(from, from + 999);
+      if (r.error) throw r.error;
+      out.push.apply(out, r.data || []);
+      if (!r.data || r.data.length < 1000) return out;
+    }
+  }
+  async function writeDocs(rows) {
+    for (let i = 0; i < rows.length; i += 50) {
+      const up = await Store.sb.from("docs").upsert(rows.slice(i, i + 50).map((r) => ({ path: r.path, data: r.data, updated_at: new Date().toISOString(), updated_by: Store.email })));
+      if (up.error) throw up.error;
+    }
+  }
+  async function deleteDocs(paths) {
+    for (let i = 0; i < paths.length; i += 50) {
+      const del = await Store.sb.from("docs").delete().in("path", paths.slice(i, i + 50));
+      if (del.error) throw del.error;
+    }
+  }
+  const isSandboxRow = (r) => r.path.indexOf(PFX) === 0, isBackupRow = (r) => r.path.indexOf(BACKUP) === 0;
+  $("btnCopyLive").addEventListener("click", () => {
+    if (!inSandbox()) return;
+    openDialog({ title: "Copy the live data into the sandbox?", text: "Everything currently in the sandbox is replaced by a copy of the live site's samples and data. The live site is only read, never changed.", actions: [{ label: "Copy live data", primary: true, fn: async () => {
+      setState("Copying live data…");
+      try {
+        await settle();
+        const all = await allDocs(), live = all.filter((r) => !isSandboxRow(r) && !isBackupRow(r));
+        await deleteDocs(all.filter(isSandboxRow).map((r) => r.path));
+        await writeDocs(live.map((r) => ({ path: PFX + r.path, data: r.data })));
+        location.reload();
+      } catch (e) { setState("The live data could not be copied: " + (e.message || "unknown error"), true); }
+    } }] });
+  });
+  async function pinMatches(pin) {
+    if (!CFG.publishPinHash || !window.crypto || !window.crypto.subtle) return false;
+    const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode("data-workbench-publish:" + String(pin).trim()));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("") === CFG.publishPinHash;
+  }
+  $("btnPublishData").addEventListener("click", () => {
+    if (!inSandbox()) return;
+    openDialog({ title: "Publish the sandbox data to the live site?", text: "The live site's samples and data are REPLACED by what is in the sandbox now. Anything on the live site that is not in the sandbox is removed. The live data as it is now is kept as a backup in the database (only the most recent backup is kept). Publish the code first if the sandbox has features the live site does not have yet. Enter the PIN to continue.", input: "", inputType: "password", placeholder: "PIN", actions: [{ label: "Publish data to live", primary: true, fn: async (pin) => {
+      if (!inSandbox()) return;
+      let ok = false;
+      try { ok = await pinMatches(pin); } catch (e) { ok = false; }
+      if (!ok) return toast("Wrong PIN. Nothing was changed.");
+      setState("Publishing data to the live site…");
+      try {
+        await settle();
+        const all = await allDocs();
+        const sandbox = all.filter(isSandboxRow).map((r) => ({ path: r.path.slice(PFX.length), data: r.data })).filter((r) => r.path.indexOf(BACKUP) !== 0 && r.path.indexOf(PFX) !== 0);
+        const live = all.filter((r) => !isSandboxRow(r) && !isBackupRow(r));
+        if (!sandbox.length) throw new Error("the sandbox has no data");
+        // 1. keep the current live data as the backup, 2. write the sandbox data over live, 3. remove live items the sandbox does not have
+        await deleteDocs(all.filter(isBackupRow).map((r) => r.path));
+        await writeDocs(live.map((r) => ({ path: BACKUP + r.path, data: r.data })));
+        await writeDocs(sandbox);
+        const keep = new Set(sandbox.map((r) => r.path));
+        await deleteDocs(live.filter((r) => !keep.has(r.path)).map((r) => r.path));
+        setState("Published to the live site");
+        openDialog({ title: "Data published", text: "The live site now has the sandbox's " + sandbox.length + " saved items (samples, sheets and titles). The previous live data, " + live.length + " items, is kept as a backup. Ask your collaborators to reload the live site.", closeLabel: "Close" });
+      } catch (e) { setState("The data could not be published: " + (e.message || "unknown error") + ". The live site may be partly updated; try again.", true); }
+    } }] });
+  });
+  if (CFG.publishCodeUrl) $("lnkPublishCode").href = CFG.publishCodeUrl;
+
   async function remoteGate() {
     const { data } = await Store.sb.auth.getSession();
     const session = data && data.session;
@@ -1086,6 +1527,9 @@
     if (!m.data || !m.data.length) { showAuth("", Store.email); return false; }
     $("whoAmI").textContent = Store.email; $("whoAmI").hidden = false;
     $("btnRefresh").hidden = false; $("btnSignOut").hidden = false;
+    $("btnCopyLive").hidden = !inSandbox();
+    $("btnPublishData").hidden = !(inSandbox() && CFG.publishPinHash);
+    $("lnkPublishCode").hidden = !(inSandbox() && CFG.publishCodeUrl);
     Store.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") location.reload(); });
     return true;
   }
