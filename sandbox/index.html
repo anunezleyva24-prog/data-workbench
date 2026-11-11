@@ -122,8 +122,11 @@ table.grid.reg, .grid.reg input[type="text"] { font-family: var(--body); }
 .seqsteps .iconbtn:disabled { opacity: .3; cursor: default; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn:disabled:hover { border-color: var(--line); }
-.seq-mode #btnUndo, .seq-mode #btnRedo, .seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
+.seq-mode #btnAddRow, .seq-mode #btnAddCol, .seq-mode label[for="fileInput"], .seq-mode #btnPaste, .seq-mode #btnNew { display: none !important; }
 .seq-mode .colhead input { cursor: default; }
+.maskbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.maskchips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; max-height: 92px; overflow: auto; }
+.mchip { display: inline-flex; align-items: center; gap: 2px; font: 12px var(--mono); border: 1px dashed var(--line); border-radius: 999px; padding: 1px 4px 1px 8px; color: var(--muted); }
 .dlgchecks { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 8px; }
 .dlgchecks label.check { color: var(--ink); font-size: 14px; }
 .dlgchecks input:disabled + * , .dlgchecks label:has(input:disabled) { color: var(--muted); }
@@ -389,7 +392,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
       <p class="note">Origin is a desktop program, so a web page cannot open it or exchange data with it live. These three routes move your work into Origin.</p>
       <ol class="routes">
         <li><b>Clipboard.</b> Copy the table and paste it into an Origin worksheet. Without headers the values land in the data rows directly.
-          <div class="row" style="margin-top:6px"><button class="btn small" id="oCopyData" type="button">Copy data without headers</button></div></li>
+          <div class="row" style="margin-top:6px"><button class="btn small" id="oCopyData" type="button">Copy data without headers</button><span class="note" id="oMaskNote"></span></div></li>
         <li><b>Script.</b> The script below rebuilds this worksheet in Origin with names, units and X/Y designations, and draws the current plot as a native, editable Origin graph. Paste it into Origin's Python console, or run it from Python on a Windows PC with Origin installed. It follows the documented originpro API and has not been run against your Origin version.
           <div class="row" style="margin-top:6px"><button class="btn small" id="oCopyScript" type="button">Copy script</button><button class="btn small save-only" id="oSaveScript" type="button">Save script as .txt</button></div></li>
         <li><b>File.</b> Save the table as CSV and drag it into Origin, or use Data, Import From File.</li>
@@ -424,8 +427,8 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794391159"></script>
-<script src="core.js?v=1794391159"></script>
-<script src="app.js?v=1794391159"></script>
+<script src="config.js?v=1794392876"></script>
+<script src="core.js?v=1794392876"></script>
+<script src="app.js?v=1794392876"></script>
 </body>
 </html>
