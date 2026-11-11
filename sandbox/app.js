@@ -27,7 +27,7 @@
     const a = $("dlgArea"), inp = $("dlgInput"), pick = $("dlgSelect");
     pick.hidden = !o.select;
     pick.innerHTML = (o.select || []).map((x) => '<option value="' + esc(x.v) + '"' + (String(x.v) === String(o.selected) ? " selected" : "") + ">" + esc(x.t) + "</option>").join("");
-    inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || "";
+    inp.hidden = o.input === undefined; inp.value = o.input || ""; inp.placeholder = o.placeholder || ""; inp.type = o.inputType || "text";
     a.hidden = o.area === undefined;
     a.value = o.area || ""; a.readOnly = !!o.readonly; a.placeholder = o.placeholder || "";
     const cb = $("dlgChecks");
@@ -1446,23 +1446,75 @@
     document.title = "Data Workbench (sandbox)";
     $("sbxChip").hidden = false;
   }
+  /* ---------- sandbox only: move data between the sandbox and the live site ---------- */
+  const BACKUP = "backup/"; // the live data as it was before the last publish
+  const inSandbox = () => !!(CFG.sandbox && PFX && Store.remote);
+  async function allDocs() {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const r = await Store.sb.from("docs").select("path,data").order("path").range(from, from + 999);
+      if (r.error) throw r.error;
+      out.push.apply(out, r.data || []);
+      if (!r.data || r.data.length < 1000) return out;
+    }
+  }
+  async function writeDocs(rows) {
+    for (let i = 0; i < rows.length; i += 50) {
+      const up = await Store.sb.from("docs").upsert(rows.slice(i, i + 50).map((r) => ({ path: r.path, data: r.data, updated_at: new Date().toISOString(), updated_by: Store.email })));
+      if (up.error) throw up.error;
+    }
+  }
+  async function deleteDocs(paths) {
+    for (let i = 0; i < paths.length; i += 50) {
+      const del = await Store.sb.from("docs").delete().in("path", paths.slice(i, i + 50));
+      if (del.error) throw del.error;
+    }
+  }
+  const isSandboxRow = (r) => r.path.indexOf(PFX) === 0, isBackupRow = (r) => r.path.indexOf(BACKUP) === 0;
   $("btnCopyLive").addEventListener("click", () => {
+    if (!inSandbox()) return;
     openDialog({ title: "Copy the live data into the sandbox?", text: "Everything currently in the sandbox is replaced by a copy of the live site's samples and data. The live site is only read, never changed.", actions: [{ label: "Copy live data", primary: true, fn: async () => {
       setState("Copying live data…");
       try {
-        const all = await Store.sb.from("docs").select("path,data");
-        if (all.error) throw all.error;
-        const live = (all.data || []).filter((r) => r.path.indexOf(PFX) !== 0);
-        const del = await Store.sb.from("docs").delete().like("path", PFX + "%");
-        if (del.error) throw del.error;
-        for (let i = 0; i < live.length; i += 50) {
-          const up = await Store.sb.from("docs").upsert(live.slice(i, i + 50).map((r) => ({ path: PFX + r.path, data: r.data, updated_at: new Date().toISOString(), updated_by: Store.email })));
-          if (up.error) throw up.error;
-        }
+        await settle();
+        const all = await allDocs(), live = all.filter((r) => !isSandboxRow(r) && !isBackupRow(r));
+        await deleteDocs(all.filter(isSandboxRow).map((r) => r.path));
+        await writeDocs(live.map((r) => ({ path: PFX + r.path, data: r.data })));
         location.reload();
       } catch (e) { setState("The live data could not be copied: " + (e.message || "unknown error"), true); }
     } }] });
   });
+  async function pinMatches(pin) {
+    if (!CFG.publishPinHash || !window.crypto || !window.crypto.subtle) return false;
+    const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode("data-workbench-publish:" + String(pin).trim()));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("") === CFG.publishPinHash;
+  }
+  $("btnPublishData").addEventListener("click", () => {
+    if (!inSandbox()) return;
+    openDialog({ title: "Publish the sandbox data to the live site?", text: "The live site's samples and data are REPLACED by what is in the sandbox now. Anything on the live site that is not in the sandbox is removed. The live data as it is now is kept as a backup in the database (only the most recent backup is kept). Publish the code first if the sandbox has features the live site does not have yet. Enter the PIN to continue.", input: "", inputType: "password", placeholder: "PIN", actions: [{ label: "Publish data to live", primary: true, fn: async (pin) => {
+      if (!inSandbox()) return;
+      let ok = false;
+      try { ok = await pinMatches(pin); } catch (e) { ok = false; }
+      if (!ok) return toast("Wrong PIN. Nothing was changed.");
+      setState("Publishing data to the live site…");
+      try {
+        await settle();
+        const all = await allDocs();
+        const sandbox = all.filter(isSandboxRow).map((r) => ({ path: r.path.slice(PFX.length), data: r.data })).filter((r) => r.path.indexOf(BACKUP) !== 0 && r.path.indexOf(PFX) !== 0);
+        const live = all.filter((r) => !isSandboxRow(r) && !isBackupRow(r));
+        if (!sandbox.length) throw new Error("the sandbox has no data");
+        // 1. keep the current live data as the backup, 2. write the sandbox data over live, 3. remove live items the sandbox does not have
+        await deleteDocs(all.filter(isBackupRow).map((r) => r.path));
+        await writeDocs(live.map((r) => ({ path: BACKUP + r.path, data: r.data })));
+        await writeDocs(sandbox);
+        const keep = new Set(sandbox.map((r) => r.path));
+        await deleteDocs(live.filter((r) => !keep.has(r.path)).map((r) => r.path));
+        setState("Published to the live site");
+        openDialog({ title: "Data published", text: "The live site now has the sandbox's " + sandbox.length + " saved items (samples, sheets and titles). The previous live data, " + live.length + " items, is kept as a backup. Ask your collaborators to reload the live site.", closeLabel: "Close" });
+      } catch (e) { setState("The data could not be published: " + (e.message || "unknown error") + ". The live site may be partly updated; try again.", true); }
+    } }] });
+  });
+  if (CFG.publishCodeUrl) $("lnkPublishCode").href = CFG.publishCodeUrl;
 
   async function remoteGate() {
     const { data } = await Store.sb.auth.getSession();
@@ -1475,7 +1527,9 @@
     if (!m.data || !m.data.length) { showAuth("", Store.email); return false; }
     $("whoAmI").textContent = Store.email; $("whoAmI").hidden = false;
     $("btnRefresh").hidden = false; $("btnSignOut").hidden = false;
-    $("btnCopyLive").hidden = !(CFG.sandbox && PFX);
+    $("btnCopyLive").hidden = !inSandbox();
+    $("btnPublishData").hidden = !(inSandbox() && CFG.publishPinHash);
+    $("lnkPublishCode").hidden = !(inSandbox() && CFG.publishCodeUrl);
     Store.sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") location.reload(); });
     return true;
   }
