@@ -16,3 +16,13 @@ insert into public.members (email) values ('new.person@example.com');
 
 If `supabaseUrl` in `config.js` is left empty, the app falls back to storing data in each
 visitor's own browser.
+
+## Sandbox (try changes before they go live)
+
+- Live site: the files in the repository root. Sandbox: the copy in `sandbox/`, served at
+  https://anunezleyva24-prog.github.io/data-workbench/sandbox/
+- The sandbox uses the same sign-in and member list, but stores everything under a `sandbox/`
+  prefix in the database, so live samples are never changed. "Copy live data here" in the
+  sandbox replaces its test data with a copy of the live data (the live data is only read).
+- New features are edited in `sandbox/` only, then `tools/stamp-sandbox.sh` is run and pushed.
+- After review, `tools/promote.sh` copies the sandbox code to the live site; commit and push.

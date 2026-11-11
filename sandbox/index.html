@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: fixed header, two working panes. Left is the worksheet, right is plot / formulas / statistics / Origin. */
+  --bg: #eef0f3; --surface: #ffffff; --sunken: #f6f7f9; --ink: #161a20; --muted: #586070; --line: #d9dde4; --grid: #e9ecf0;
+  --accent: #0f6e73; --accent-ink: #ffffff; --accent-soft: #e0f1f1; --bad: #b3261e;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --display: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111418; --surface: #1a1e24; --sunken: #15181d; --ink: #e9ebef; --muted: #9ea6b3; --line: #2f353f; --grid: #262b33;
+    --accent: #55c2c6; --accent-ink: #082124; --accent-soft: #173638; --bad: #f2867e;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111418; --surface: #1a1e24; --sunken: #15181d; --ink: #e9ebef; --muted: #9ea6b3; --line: #2f353f; --grid: #262b33;
+  --accent: #55c2c6; --accent-ink: #082124; --accent-soft: #173638; --bad: #f2867e;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 10px 16px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font: 600 20px/1.1 var(--display); letter-spacing: .01em; margin: 0; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.actions, .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; font-weight: 500; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.small { padding: 3px 9px; font-size: 13px; }
+.view-samples .bench-only, .view-samples main, .view-bench .samples-only, .view-bench #samplesView { display: none !important; }
+.view-combine .samples-only, .view-combine .bench-only, .view-combine main, .view-combine #samplesView { display: none !important; }
+.view-combine #btnBack { display: inline-flex !important; }
+body:not(.view-combine) #combineView { display: none; }
+#combineView { margin: 0 16px 16px; }
+#cChart { position: relative; flex: 1; min-height: 340px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+#cChartIn { position: absolute; inset: 0; }
+.reg td.sel, .reg th.sel { min-width: 0; text-align: center; padding: 2px 8px; }
+.reg td.sel input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
+#samplesView { margin: 0 16px 16px; }
+.state { font-size: 12px; color: var(--muted); }
+.state.bad { color: var(--bad); }
+table.reg { font-family: var(--body); width: 100%; }
+.reg .btn, .reg .dims, .reg .rn { font-family: var(--body); }
+.reg thead tr.groups th { position: static; font: 600 12px var(--body); color: var(--muted); padding: 5px 10px; min-width: 0; }
+.reg thead th { min-width: 160px; padding: 4px; }
+.reg thead th.ck, .reg td.ck { min-width: 136px; text-align: center; }
+.reg thead th.narrow, .reg td.narrow { min-width: 0; white-space: nowrap; }
+.reg input[type="text"] { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 4px 6px; font-size: 14px; }
+.reg thead input[type="text"] { font-weight: 600; }
+.reg th.ck input[type="text"] { text-align: center; }
+.reg input[type="text"]:hover, .reg input[type="text"]:focus { border-color: var(--line); background: var(--sunken); }
+.reg td { text-align: left; padding: 2px 4px; max-width: none; height: 36px; overflow: visible; }
+.reg td.ck input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
+.reg td.narrow { padding: 2px 8px; }
+.reg .dims { color: var(--muted); font-size: 12px; margin-left: 8px; }
+.save-only { display: none; }
+.can-save .save-only { display: inline-flex; }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 12px; padding: 0 16px 16px; min-height: 0; }
+.pane { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.panebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.panebar .grow { flex: 1; color: var(--muted); font-size: 13px; }
+label.check { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+.tablewrap { overflow: auto; flex: 1; min-height: 0; background: var(--sunken); }
+table.grid { border-collapse: separate; border-spacing: 0; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.grid th, .grid td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.grid thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); padding: 6px; vertical-align: top; text-align: left; font-weight: 400; min-width: 112px; }
+.grid thead th.corner { left: 0; z-index: 3; min-width: 44px; }
+.grid .rn { position: sticky; left: 0; z-index: 1; background: var(--surface); color: var(--muted); text-align: right; padding: 0 6px; min-width: 44px; font-weight: 400; font-size: 12px; white-space: nowrap; }
+.grid .rn button { visibility: hidden; border: 0; background: none; color: var(--bad); cursor: pointer; padding: 0 0 0 4px; }
+.grid tr:hover .rn button, .grid .rn button:focus-visible { visibility: visible; }
+.grid td { background: var(--surface); padding: 4px 8px; text-align: right; min-width: 112px; max-width: 220px; white-space: nowrap; overflow: hidden; height: 27px; }
+.grid td:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.grid td.txt { text-align: left; }
+.grid td.calc { background: var(--sunken); color: var(--muted); }
+.colhead { display: flex; flex-direction: column; gap: 4px; }
+.colhead .line1 { display: flex; align-items: center; gap: 4px; }
+.colhead .ltr { font: 600 12px var(--body); background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 0 6px; }
+.colhead .sp { flex: 1; }
+.iconbtn { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; border-radius: 4px; font: 500 12px var(--body); }
+.iconbtn:hover { color: var(--accent); background: var(--accent-soft); }
+.colhead input { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 1px 4px; font: 600 13px var(--body); }
+.colhead input.unit { font-weight: 400; color: var(--muted); font-size: 12px; }
+.colhead input:hover, .colhead input:focus { border-color: var(--line); background: var(--sunken); }
+.colhead .fx { font: 12px var(--mono); color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.colhead .err { font: 12px var(--body); color: var(--bad); white-space: normal; max-width: 200px; }
+.pager { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.pager:empty { display: none; }
+
+.tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 8px 14px; cursor: pointer; font: 600 15px var(--display); color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabpanel { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.tabpanel[hidden] { display: none; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+.field.wide { flex: 1 1 220px; }
+.field input[type="text"], .field select, textarea { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 5px 8px; font-size: 14px; color: var(--ink); min-width: 0; max-width: 100%; }
+.field input.mono, textarea, pre { font-family: var(--mono); font-size: 13px; }
+.ychips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ychips label { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px 2px 6px; font-size: 13px; cursor: pointer; color: var(--ink); }
+.ychips label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+#chartIn { position: absolute; inset: 0; }
+#chart { position: relative; flex: 1; min-height: 320px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.note { color: var(--muted); font-size: 13px; max-width: 70ch; margin: 0; }
+.note.bad { color: var(--bad); }
+h2 { font: 600 15px var(--display); margin: 0; }
+.out { display: flex; flex-direction: column; gap: 10px; }
+.scroll { overflow-x: auto; }
+table.res { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.res th, .res td { padding: 4px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.res th { color: var(--muted); font-weight: 500; }
+.res th:first-child, .res td:first-child { text-align: left; }
+.eq { font: 14px var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: nowrap; }
+.kv { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+.kv b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv span { color: var(--muted); }
+pre { margin: 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow: auto; max-height: 300px; white-space: pre; }
+details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.ref { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 13px; margin-top: 8px; }
+.ref code { font-family: var(--mono); }
+.flist { display: flex; flex-direction: column; gap: 6px; }
+.flist .item { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.flist .item code { font-family: var(--mono); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ol.routes { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 72ch; }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); padding: 16px; width: min(640px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(10, 14, 20, .45); }
+dialog h2 { margin-bottom: 8px; }
+dialog textarea { width: 100%; height: 220px; resize: vertical; }
+dialog .row { justify-content: flex-end; margin-top: 12px; }
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 8px 14px; border-radius: 6px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .15s; max-width: calc(100vw - 32px); z-index: 10; }
+#toast.show { opacity: 1; }
+body.drag::after { content: "Drop the file to import it"; position: fixed; inset: 12px; border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--surface) 85%, transparent); display: grid; place-items: center; font: 600 20px var(--display); z-index: 20; }
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  body { display: block; }
+  main { grid-template-columns: minmax(0, 1fr); }
+  .tablewrap { max-height: 60vh; }
+  #chart { min-height: 340px; flex: none; height: 380px; }
+}
+[hidden] { display: none !important; }
+.sheettabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--sunken); }
+.sheettabs:empty { display: none; }
+.sheettabs button[role="tab"] { border: 1px solid transparent; border-bottom: 0; background: none; padding: 6px 12px; cursor: pointer; font: 600 13px var(--body); color: var(--muted); border-radius: 6px 6px 0 0; white-space: nowrap; margin-bottom: -1px; }
+.sheettabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.sheettabs .add { border: 0; background: none; color: var(--accent); font: 500 13px var(--body); padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+.sheettabs .sp { flex: 1; }
+.sheettabs .iconbtn { margin-bottom: 4px; white-space: nowrap; }
+.dlginput { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 6px 8px; font-size: 14px; color: var(--ink); }
+.chip.sbx { background: #f6d8a8; color: #5a3a00; font-weight: 600; }
+.who { font-size: 12px; color: var(--muted); }
+.authcard { align-self: start; max-width: 480px; width: calc(100% - 32px); margin: 40px auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.authcard[hidden] { display: none; }
+.authcard form { align-items: end; }
+.authcard input[type="email"] { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 6px 8px; font-size: 14px; color: var(--ink); width: 100%; }
+body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { display: none !important; }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+</head>
+<body class="view-samples">
+<header class="top">
+  <div class="brand">
+    <button class="btn small bench-only" id="btnBack" type="button">&larr; Samples</button>
+    <h1 id="viewTitle">Samples</h1>
+    <span class="chip bench-only" id="dsChip" hidden>Example data</span>
+    <span class="chip sbx" id="sbxChip" hidden>Sandbox: test copy, separate from the live site</span>
+    <span class="state" id="saveState" role="status"></span>
+  </div>
+  <div class="actions">
+    <span class="who samples-only" id="whoAmI" hidden></span>
+    <button class="btn samples-only" id="btnCopyLive" type="button" hidden title="Replace the sandbox's test data with a copy of the live samples">Copy live data here</button>
+    <button class="btn samples-only" id="btnRefresh" type="button" hidden>Refresh</button>
+    <button class="btn samples-only" id="btnSignOut" type="button" hidden>Sign out</button>
+    <button class="btn samples-only" id="btnCombine" type="button" title="Tick samples in the list, then plot them together">Plot selected</button>
+    <button class="btn primary samples-only" id="btnAddSample" type="button">+ Add sample</button>
+    <label class="btn primary bench-only" for="fileInput">Import file</label>
+    <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.dat,.xlsx,.xls,.ods" hidden>
+    <button class="btn bench-only" id="btnPaste" type="button">Paste data</button>
+    <button class="btn bench-only" id="btnNew" type="button">Empty table</button>
+  </div>
+</header>
+
+<section class="pane" id="samplesView" aria-label="Samples">
+  <div class="panebar">
+    <span class="grow" id="regCount">Loading saved samples…</span>
+    <span class="note">Every column title can be edited. Open a sample to import, analyse and plot its data.</span>
+  </div>
+  <div class="tablewrap"><table class="grid reg" id="reg"></table></div>
+</section>
+
+<section class="pane" id="combineView" aria-label="Combined plot of several samples">
+  <div class="tabpanel">
+    <div class="controls">
+      <label class="field">Function
+        <select id="cFn">
+          <option value="overlap">Overlap: each sample as its own curve</option>
+          <option value="merge">Merge: average the samples</option>
+        </select></label>
+      <label class="field" id="cGroupWrap">Average
+        <select id="cGroup"></select></label>
+      <label class="field">Sheet <select id="cSheet"></select></label>
+      <label class="field">X column <select id="cX"></select></label>
+      <label class="field">Y column <select id="cY"></select></label>
+      <label class="field">Type
+        <select id="cType">
+          <option value="linesym">Line + symbol</option><option value="scatter">Scatter</option><option value="line">Line</option>
+        </select></label>
+      <label class="check"><input type="checkbox" id="cLogX"> log X</label>
+      <label class="check"><input type="checkbox" id="cLogY"> log Y</label>
+      <label class="check" id="cSDWrap"><input type="checkbox" id="cSD" checked> error bars (± SD)</label>
+      <label class="check" id="cIndWrap"><input type="checkbox" id="cInd"> also show each sample</label>
+    </div>
+    <p class="note" id="cNote" style="max-width:none"></p>
+    <div id="cChart" role="img" aria-label="Combined plot of the selected samples"><div id="cChartIn"></div></div>
+    <div class="controls">
+      <label class="field wide">Title <input type="text" id="cTitle" placeholder="none"></label>
+      <label class="field wide">X label <input type="text" id="cXL" placeholder="from column name"></label>
+      <label class="field wide">Y label <input type="text" id="cYL" placeholder="from column name"></label>
+      <button class="btn small" id="cCopyData" type="button">Copy plotted data</button>
+      <button class="btn small" id="cCopyImg" type="button">Copy image</button>
+      <button class="btn small save-only" id="cPng" type="button">Save PNG</button>
+      <button class="btn small save-only" id="cSvg" type="button">Save SVG</button>
+    </div>
+  </div>
+</section>
+
+<main>
+  <section class="pane" aria-label="Worksheet">
+    <nav class="sheettabs" id="sheetTabs" role="tablist" aria-label="Sheets in this sample"></nav>
+    <div class="panebar">
+      <span class="grow" id="dims"></span>
+      <label class="check"><input type="checkbox" id="copyHeaders" checked> with headers</label>
+      <button class="btn small" id="btnCopy" type="button">Copy table</button>
+      <button class="btn small save-only" id="btnCsv" type="button">Save CSV</button>
+      <button class="btn small" id="btnAddRow" type="button">+ Row</button>
+      <button class="btn small" id="btnAddCol" type="button">+ Column</button>
+    </div>
+    <div class="tablewrap"><table class="grid" id="grid"></table></div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <section class="pane" aria-label="Analysis">
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="plot" aria-selected="true" type="button">Plot</button>
+      <button role="tab" data-tab="formula" aria-selected="false" type="button">Formulas</button>
+      <button role="tab" data-tab="stats" aria-selected="false" type="button">Statistics</button>
+      <button role="tab" data-tab="origin" aria-selected="false" type="button">Origin</button>
+    </nav>
+
+    <div class="tabpanel" id="tab-plot" role="tabpanel">
+      <div class="controls">
+        <label class="field">Type
+          <select id="pType">
+            <option value="scatter">Scatter</option><option value="line">Line</option><option value="linesym">Line + symbol</option>
+            <option value="bar">Column</option><option value="hist">Histogram</option><option value="box">Box plot</option>
+          </select></label>
+        <label class="field">X column <select id="pX"></select></label>
+        <label class="field">Y error bars <select id="pErr"></select></label>
+        <label class="check"><input type="checkbox" id="pLogX"> log X</label>
+        <label class="check"><input type="checkbox" id="pLogY"> log Y</label>
+        <label class="check"><input type="checkbox" id="pFit" checked> show fitted curve</label>
+      </div>
+      <div class="field">Y columns<div class="ychips" id="pYs"></div></div>
+      <div class="controls" id="pRightRow">
+        <div class="field">Put on a second (right) Y axis<div class="ychips" id="pRight"></div></div>
+        <label class="check"><input type="checkbox" id="pLogY2"> log right Y</label>
+      </div>
+      <div id="chart" role="img" aria-label="Plot of the selected columns"><div id="chartIn"></div></div>
+      <div class="controls">
+        <label class="field wide">Title <input type="text" id="pTitle" placeholder="none"></label>
+        <label class="field wide">X label <input type="text" id="pXL" placeholder="from column name"></label>
+        <label class="field wide">Y label <input type="text" id="pYL" placeholder="from column name"></label>
+        <label class="field wide" id="pYRWrap">Right Y label <input type="text" id="pYR" placeholder="from column name"></label>
+        <button class="btn small" id="btnCopyImg" type="button">Copy image</button>
+        <button class="btn small save-only" id="btnPng" type="button">Save PNG</button>
+        <button class="btn small save-only" id="btnSvg" type="button">Save SVG</button>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="tab-formula" role="tabpanel" hidden>
+      <h2 id="fHead">New calculated column</h2>
+      <div class="controls">
+        <label class="field">Column name <input type="text" id="fName" placeholder="Normalized"></label>
+        <label class="field">Unit <input type="text" id="fUnit" placeholder="optional"></label>
+        <label class="field wide">Formula <input type="text" class="mono" id="fExpr" placeholder="B / max(B)" spellcheck="false" autocomplete="off"></label>
+        <button class="btn primary" id="fAdd" type="button">Add column</button>
+        <button class="btn" id="fCancel" type="button" hidden>Cancel</button>
+      </div>
+      <p class="note" id="fPrev">Refer to columns by letter (A, B, C) or by name. The column recalculates whenever the data change.</p>
+      <div class="flist" id="fList"></div>
+      <details open>
+        <summary>What you can write</summary>
+        <div class="ref">
+          <code>A, B, "Run 1", col("Run 1")</code><span>a column, by letter or by name</span>
+          <code>+ − * / ^ ( )</code><span>arithmetic; <code>i</code> is the row number, <code>pi</code> and <code>e</code> are constants</span>
+          <code>sqrt abs exp ln log log2 round(x, d)</code><span>applied row by row; <code>log</code> is base 10, as in Origin</span>
+          <code>sin cos tan asin acos atan</code><span>angles in radians</span>
+          <code>mean sd var median min max sum count</code><span>one value for the whole column, e.g. <code>B − mean(B)</code></span>
+          <code>norm(B), norm01(B), zscore(B)</code><span>divide by maximum, scale to 0–1, standardize</span>
+          <code>cumsum(B), diff(B), smooth(B, 5)</code><span>running total, row-to-row difference, moving average</span>
+          <code>deriv(Y, X), integ(Y, X)</code><span>numerical derivative, cumulative trapezoid integral</span>
+          <code>if(A &gt; 5, B, 0)</code><span>choose per row; comparisons give 1 or 0</span>
+        </div>
+      </details>
+    </div>
+
+    <div class="tabpanel" id="tab-stats" role="tabpanel" hidden>
+      <div class="controls">
+        <label class="field">Analysis
+          <select id="sType">
+            <option value="desc">Descriptive statistics</option>
+            <option value="poly">Linear / polynomial fit</option>
+            <option value="nl">Nonlinear curve fit</option>
+            <option value="cmp">Compare groups (t-test, ANOVA)</option>
+            <option value="corr">Correlation</option>
+          </select></label>
+      </div>
+      <div class="controls" id="sCtl"></div>
+      <div class="out" id="sOut"></div>
+    </div>
+
+    <div class="tabpanel" id="tab-origin" role="tabpanel" hidden>
+      <p class="note">Origin is a desktop program, so a web page cannot open it or exchange data with it live. These three routes move your work into Origin.</p>
+      <ol class="routes">
+        <li><b>Clipboard.</b> Copy the table and paste it into an Origin worksheet. Without headers the values land in the data rows directly.
+          <div class="row" style="margin-top:6px"><button class="btn small" id="oCopyData" type="button">Copy data without headers</button></div></li>
+        <li><b>Script.</b> The script below rebuilds this worksheet in Origin with names, units and X/Y designations, and draws the current plot as a native, editable Origin graph. Paste it into Origin's Python console, or run it from Python on a Windows PC with Origin installed. It follows the documented originpro API and has not been run against your Origin version.
+          <div class="row" style="margin-top:6px"><button class="btn small" id="oCopyScript" type="button">Copy script</button><button class="btn small save-only" id="oSaveScript" type="button">Save script as .txt</button></div></li>
+        <li><b>File.</b> Save the table as CSV and drag it into Origin, or use Data, Import From File.</li>
+      </ol>
+      <pre id="oScript" tabindex="0"></pre>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h2 id="dlgTitle"></h2>
+  <p class="note" id="dlgText"></p>
+  <input type="text" id="dlgInput" class="dlginput" hidden autocomplete="off">
+  <textarea id="dlgArea" spellcheck="false"></textarea>
+  <div class="row" id="dlgBtns"></div>
+</dialog>
+<section id="authView" class="authcard" hidden aria-labelledby="authTitle">
+  <h2 id="authTitle">Sign in to the shared workbench</h2>
+  <p class="note" id="authText">Enter your email and we'll send you a sign-in link. Only invited lab members can see the shared samples.</p>
+  <form id="authForm" class="row">
+    <label class="field wide">Email <input type="email" id="authEmail" required autocomplete="email" placeholder="you@example.com"></label>
+    <button class="btn primary" id="authSend" type="submit">Send sign-in link</button>
+  </form>
+  <p class="note" id="authMsg" role="status"></p>
+  <div class="row" id="authAlt" hidden><button class="btn small" id="authOut" type="button">Use a different email</button></div>
+</section>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="../lib/jstat.min.js"></script>
+<script src="../lib/plotly.min.js"></script>
+<script src="../lib/xlsx.full.min.js"></script>
+<script src="../lib/supabase.js"></script>
+<script src="config.js?v=1794382446"></script>
+<script src="core.js?v=1794382446"></script>
+<script src="app.js?v=1794382446"></script>
+</body>
+</html>
