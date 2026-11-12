@@ -1674,7 +1674,14 @@
       } catch (e) { setState("The data could not be published: " + (e.message || "unknown error") + ". The live site may be partly updated; try again.", true); }
     } }] });
   });
-  if (CFG.publishCodeUrl) $("lnkPublishCode").href = CFG.publishCodeUrl;
+  // On GitHub Pages (owner.github.io/repo/...), open the workflow of the repository this site is served from,
+  // so every copy of the workbench publishes its own live site. Elsewhere, use the address in config.js.
+  (function () {
+    const owner = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
+    const repo = location.pathname.split("/").filter(Boolean)[0] || "";
+    const url = owner && repo ? "https://github.com/" + owner + "/" + repo + "/actions/workflows/publish-sandbox.yml" : CFG.publishCodeUrl;
+    if (url) $("lnkPublishCode").href = url;
+  })();
 
   async function remoteGate() {
     const { data } = await Store.sb.auth.getSession();
