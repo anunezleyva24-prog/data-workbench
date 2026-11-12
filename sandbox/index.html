@@ -257,6 +257,10 @@ a.btn { text-decoration: none; color: inherit; }
 .authcard form { align-items: end; }
 .authcard input[type="email"] { width: 100%; }
 .authcard h2 { font-size: 20px; }
+.authcard .authform { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.authform .btn { align-self: flex-start; }
+.authcard input[type="password"] { width: 100%; height: var(--ctl); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 5px 9px; font-size: 14px; color: var(--ink); }
+.authcard input[type="password"]:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 65%, transparent); }
 body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { display: none !important; }
 @media (prefers-reduced-motion: reduce) { #toast, .btn, .tabs button, .ychips label, .field input, .field select { transition: none; } .btn:active { transform: none; } }
 
@@ -605,10 +609,11 @@ dialog { border-radius: var(--r-lg); }
 </dialog>
 <section id="authView" class="authcard" hidden aria-labelledby="authTitle">
   <h2 id="authTitle">Sign in to the shared workbench</h2>
-  <p class="note" id="authText">Enter your email and we'll send you a sign-in link. Only invited lab members can see the shared samples.</p>
-  <form id="authForm" class="row">
-    <label class="field wide">Email <input type="email" id="authEmail" required autocomplete="email" placeholder="you@example.com"></label>
-    <button class="btn primary" id="authSend" type="submit">Send sign-in link</button>
+  <p class="note" id="authText">Enter the lab password to open the shared samples.</p>
+  <form id="authForm" class="authform">
+    <label class="field" id="authEmailWrap">Email <input type="email" id="authEmail" autocomplete="username" placeholder="you@example.com"></label>
+    <label class="field">Password <input type="password" id="authPass" required autocomplete="current-password"></label>
+    <button class="btn primary" id="authSend" type="submit">Sign in</button>
   </form>
   <p class="note" id="authMsg" role="status"></p>
   <div class="row" id="authAlt" hidden><button class="btn small" id="authOut" type="button">Use a different email</button></div>
@@ -619,9 +624,9 @@ dialog { border-radius: var(--r-lg); }
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794473557"></script>
-<script src="core.js?v=1794473557"></script>
-<script src="app.js?v=1794473557"></script>
+<script src="config.js?v=1794492733"></script>
+<script src="core.js?v=1794492733"></script>
+<script src="app.js?v=1794492733"></script>
 <script>
 /* Tool rail: drives the existing views and tabs by clicking their own controls, and mirrors their state. */
 (function () {

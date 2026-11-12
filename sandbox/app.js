@@ -1572,20 +1572,27 @@
     $("authForm").hidden = !!signedInAs;
     $("authAlt").hidden = !signedInAs;
     $("authText").textContent = signedInAs
-      ? "You are signed in as " + signedInAs + ", but this email is not on the lab's member list. Ask the workbench owner to add it, then reload this page."
-      : "Enter your email and we'll send you a sign-in link. Only invited lab members can see the shared samples.";
+      ? "You are signed in as " + signedInAs + ", but this account is not on the lab's member list. Ask the workbench owner to add it, then reload this page."
+      : CFG.labEmail ? "Enter the lab password to open the shared samples." : "Enter your email and password. Only lab members can see the shared samples.";
     $("authMsg").textContent = msg || "";
+    $("authEmailWrap").hidden = !!CFG.labEmail;
+    $("authEmail").required = !CFG.labEmail;
+    if (CFG.labEmail) $("authEmail").value = CFG.labEmail;
+    if (!signedInAs) setTimeout(() => $(CFG.labEmail ? "authPass" : "authEmail").focus(), 0);
   }
   $("authForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = $("authEmail").value.trim();
-    if (!email) return;
-    $("authSend").disabled = true; $("authMsg").textContent = "Sending…";
-    const { error } = await Store.sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: location.origin + location.pathname } });
+    const email = (CFG.labEmail || $("authEmail").value).trim(), password = $("authPass").value;
+    if (!email || !password) return;
+    $("authSend").disabled = true; $("authMsg").textContent = "Signing in…";
+    const { error } = await Store.sb.auth.signInWithPassword({ email: email, password: password });
     $("authSend").disabled = false;
-    $("authMsg").textContent = error
-      ? (/rate|seconds/i.test(error.message) ? "Too many sign-in emails were requested. Wait a few minutes and try again." : "The link could not be sent: " + error.message)
-      : "Check your inbox for an email from Supabase and click the link in it. You can close this tab.";
+    if (!error) { location.reload(); return; }
+    $("authPass").value = "";
+    $("authMsg").textContent = /invalid/i.test(error.message) ? "That password is not right. Check it and try again."
+      : /rate|too many/i.test(error.message) ? "Too many attempts. Wait a minute and try again."
+      : /fetch|network/i.test(error.message) ? "The sign-in service could not be reached. Check your connection and try again."
+      : "Could not sign in: " + error.message;
   });
   async function signOut() { try { await Store.sb.auth.signOut(); } catch (e) { /* ignore */ } location.reload(); }
   $("btnSignOut").addEventListener("click", () => { flush(); signOut(); });
