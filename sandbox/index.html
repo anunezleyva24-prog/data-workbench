@@ -5,39 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Data Workbench</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+/* Hybrid design system: dark tool rail, light analytical canvas, modular panels, lime active states.
+   Lime is only ever a fill behind dark text (active item, primary action, selection), never text on white. */
 :root {
-  /* Layout: fixed header, two working panes. Left is the worksheet, right is plot / formulas / statistics / Origin. */
-  --bg: #eef0f3; --surface: #ffffff; --sunken: #f6f7f9; --ink: #161a20; --muted: #586070; --line: #d9dde4; --grid: #e9ecf0;
-  --accent: #0f6e73; --accent-ink: #ffffff; --accent-soft: #e0f1f1; --bad: #b3261e;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
-  --display: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --bg: #f4f4f1; --surface: #ffffff; --sunken: #f7f7f4; --ink: #1f2326; --muted: #66706b; --line: #e0e2dd; --grid: #ecedea;
+  --accent: #3f6b5c; --accent-ink: #ffffff; --accent-soft: #e8efea; --bad: #b3261e;
+  --lime: #d9f25a; --lime-ink: #1b1d20; --lime-soft: #f2f7dc; --sage: #e7ece8; --sage-ink: #4b5a52;
+  --rail: #1b1d20; --rail-2: #26292d; --rail-3: #32363b; --rail-ink: #b8bdb9;
+  --warn: #8a5a00; --warn-bg: #fff1d6;
+  --s1: #4e7867; --s2: #7d9a12; --s3: #2a78d6; --s4: #d08a1a; --s5: #c4527f; --s6: #1b8a5a; --s7: #6250d6; --s8: #d64545;
+  --display: "Hanken Grotesk", "IBM Plex Sans", system-ui, sans-serif;
   --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --ctl: 32px; --ctl-sm: 28px; --r: 7px; --r-lg: 10px;
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .06); --shadow-md: 0 1px 3px rgba(16, 24, 40, .07), 0 4px 14px rgba(16, 24, 40, .06);
-  --hover: color-mix(in srgb, var(--accent) 5%, var(--surface)); --ring: color-mix(in srgb, var(--accent) 28%, transparent);
+  --ctl: 32px; --ctl-sm: 28px; --r: 8px; --r-lg: 12px; --railw: 76px;
+  --shadow-sm: 0 1px 2px rgba(20, 24, 22, .05); --shadow-md: 0 1px 2px rgba(20, 24, 22, .04), 0 6px 20px rgba(20, 24, 22, .05);
+  --hover: color-mix(in srgb, var(--accent) 5%, var(--surface)); --ring: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #111418; --surface: #1a1e24; --sunken: #15181d; --ink: #e9ebef; --muted: #9ea6b3; --line: #2f353f; --grid: #262b33;
-    --accent: #55c2c6; --accent-ink: #082124; --accent-soft: #173638; --bad: #f2867e;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --bg: #111315; --surface: #1a1d20; --sunken: #15171a; --ink: #ebece8; --muted: #9aa39e; --line: #2d3135; --grid: #24282c;
+    --accent: #c9e35a; --accent-ink: #15171a; --accent-soft: #262d1c; --bad: #f2867e;
+    --lime: #d4ee55; --lime-ink: #15171a; --lime-soft: #2a3218; --sage: #23282a; --sage-ink: #b9c4bd;
+    --rail: #0c0d0f; --rail-2: #1d2024; --rail-3: #2a2e33; --rail-ink: #b8bdb9;
+    --warn: #f0c46c; --warn-bg: #3a2e14;
+    --s1: #8fb8a6; --s2: #c9e35a; --s3: #3987e5; --s4: #e8a33c; --s5: #d55181; --s6: #2fb380; --s7: #9085e9; --s8: #e66767;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3); --shadow-md: 0 1px 3px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .25);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111418; --surface: #1a1e24; --sunken: #15181d; --ink: #e9ebef; --muted: #9ea6b3; --line: #2f353f; --grid: #262b33;
-  --accent: #55c2c6; --accent-ink: #082124; --accent-soft: #173638; --bad: #f2867e;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --bg: #111315; --surface: #1a1d20; --sunken: #15171a; --ink: #ebece8; --muted: #9aa39e; --line: #2d3135; --grid: #24282c;
+  --accent: #c9e35a; --accent-ink: #15171a; --accent-soft: #262d1c; --bad: #f2867e;
+  --lime: #d4ee55; --lime-ink: #15171a; --lime-soft: #2a3218; --sage: #23282a; --sage-ink: #b9c4bd;
+  --rail: #0c0d0f; --rail-2: #1d2024; --rail-3: #2a2e33; --rail-ink: #b8bdb9;
+  --warn: #f0c46c; --warn-bg: #3a2e14;
+  --s1: #8fb8a6; --s2: #c9e35a; --s3: #3987e5; --s4: #e8a33c; --s5: #d55181; --s6: #2fb380; --s7: #9085e9; --s8: #e66767;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3); --shadow-md: 0 1px 3px rgba(0, 0, 0, .35), 0 6px 18px rgba(0, 0, 0, .25);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); display: grid; grid-template-columns: var(--railw) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+body > :not(.rail) { grid-column: 2; }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -248,13 +259,135 @@ a.btn { text-decoration: none; color: inherit; }
 .authcard h2 { font-size: 20px; }
 body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { display: none !important; }
 @media (prefers-reduced-motion: reduce) { #toast, .btn, .tabs button, .ychips label, .field input, .field select { transition: none; } .btn:active { transform: none; } }
+
+/* ---------- Hybrid design system: shell ---------- */
+.rail { grid-column: 1; grid-row: 1 / -1; position: sticky; top: 0; height: 100vh; z-index: 5; background: var(--rail); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; overflow-y: auto; }
+.rail-logo { width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--lime); color: var(--lime-ink); display: grid; place-items: center; font: 700 15px var(--display); letter-spacing: .02em; margin-bottom: 12px; }
+.rail-sep { width: 32px; height: 1px; background: var(--rail-3); margin: 6px 0; flex: none; }
+.rail-btn { width: 60px; flex: none; border: 0; border-radius: 10px; background: var(--rail-2); color: var(--rail-ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px 7px; font: 500 10.5px/1.1 var(--body); transition: background-color .12s, color .12s; }
+.rail-btn svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.rail-btn:hover:not(:disabled) { background: var(--rail-3); color: #fff; }
+.rail-btn.on, .rail-btn.on:hover:not(:disabled) { background: var(--lime); color: var(--lime-ink); font-weight: 600; }
+body[class] #btnBack { display: none !important; }
+.top .brand { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; }
+.top .actions { flex: none; }
+.top h1, .top .chip, .top .state { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.top h1 { flex: 0 0 auto; max-width: 36ch; }
+.top #dsChip { flex: none; }
+.top .chip { flex: 0 1 auto; min-width: 80px; }
+.top .state { flex: 0 4 auto; min-width: 90px; display: inline-block; }
+.top .state::before { display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.top .state:empty { display: none; }
+.crumb { flex: none; }
+.grid td, .grid thead th { min-width: 104px; }
+.rail-btn:disabled { opacity: .32; cursor: default; }
+.rail-btn:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+body.view-auth .rail-btn, body.view-auth .rail-sep { display: none; }
+
+.top { background: color-mix(in srgb, var(--surface) 70%, var(--bg)); box-shadow: none; padding: 10px 20px; min-height: 60px; }
+.crumb { font: 600 12px var(--body); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.crumb span { margin: 0 2px 0 4px; opacity: .7; }
+h1 { font: 700 19px/1.15 var(--display); letter-spacing: 0; }
+.state { display: inline-flex; align-items: center; gap: 6px; background: var(--sage); color: var(--sage-ink); border-radius: 999px; padding: 3px 11px 3px 9px; font-weight: 500; }
+.state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .75; }
+.state:empty { display: none; }
+.state.bad { background: var(--warn-bg); color: var(--warn); }
+.who { display: none !important; }
+.avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--rail); color: #fff; display: inline-grid; place-items: center; font: 600 12px var(--body); letter-spacing: .03em; cursor: default; }
+:root[data-theme="dark"] .avatar { background: var(--rail-3); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .avatar { background: var(--rail-3); } }
+.chip { background: var(--sage); color: var(--sage-ink); border-radius: 6px; }
+.chip.sbx { background: var(--warn-bg); color: var(--warn); }
+
+/* panels */
+.pane { border-color: var(--line); box-shadow: var(--shadow-md); }
+#samplesView, #combineView { margin: 0 20px 20px; }
+main { padding: 0 20px 20px; gap: 16px; }
+.panebar { padding: 10px 12px; }
+
+/* buttons: primary = lime fill + graphite text; hover stays graphite */
+.btn { border-color: var(--line); box-shadow: none; }
+.btn:hover { background: var(--sunken); border-color: color-mix(in srgb, var(--ink) 25%, var(--line)); color: var(--ink); }
+.btn.primary { background: var(--lime); color: var(--lime-ink); border-color: transparent; font-weight: 600; }
+.btn.primary:hover { background: color-mix(in srgb, var(--lime) 88%, var(--ink)); color: var(--lime-ink); }
+.menulist button:hover, .menulist button:focus-visible { background: var(--sage); color: var(--ink); }
+.menu[open] summary { border-color: var(--ink); }
+.sheettabs .add, details summary { color: var(--accent); }
+
+/* tabs: graphite text, lime bar under the active one */
+.tabs { gap: 2px; }
+.tabs button { font: 600 14px var(--display); letter-spacing: .01em; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom: 3px solid var(--lime); }
+.sheettabs { background: var(--sunken); }
+.sheettabs button[aria-selected="true"] { box-shadow: inset 0 3px 0 var(--lime); }
+
+/* fields + chips */
+.field input[type="text"]:focus, .field select:focus, textarea:focus, .dlginput:focus, .authcard input[type="email"]:focus { border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 65%, transparent); }
+:focus-visible { outline-color: var(--ink); }
+.ychips label:has(input:checked) { border-color: transparent; background: var(--lime); color: var(--lime-ink); }
+.ychips label:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--line)); }
+input[type="checkbox"] { accent-color: var(--ink); }
+.card { background: var(--sunken); border-color: var(--line); }
+
+/* worksheet grid: sage headers, lime selection */
+.grid thead th { background: var(--sage); }
+.grid thead th.corner { background: var(--sage); }
+.colhead .ltr { background: var(--rail); color: #fff; }
+.colhead .line1:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.colhead .fx { color: var(--accent); }
+.colhead .err { color: var(--warn); background: var(--warn-bg); border-radius: 5px; padding: 2px 6px; }
+.grid thead th.selc { background: var(--lime); box-shadow: none; }
+.grid thead th.selc .ltr { background: var(--lime-ink); }
+.grid td.selc, .grid td.calc.selc { background: var(--lime-soft); color: var(--ink); }
+.grid td.calc { background: color-mix(in srgb, var(--sage) 45%, var(--surface)); }
+.grid td:focus { outline-color: var(--ink); }
+.grid tbody tr:hover td:not(.selc) { background: var(--sunken); }
+.selinfo { background: var(--lime-soft); color: var(--ink); }
+.reg tbody tr:has(td.sel input:checked) td { background: var(--lime-soft); }
+.reg thead tr.groups th { background: var(--surface); }
+
+/* code + results: dark graphite blocks */
+.eq, pre { background: var(--rail); color: #e9ece6; border-color: var(--rail); border-left: 0; }
+.eq { border-left: 4px solid var(--lime); }
+.note.bad { color: var(--warn); }
+.note.bad:not(:empty) { background: var(--warn-bg); border-radius: var(--r); padding: 7px 11px; max-width: none; }
+.note.bad:not(:empty)::before { content: "▲ "; font-size: 11px; }
+#toast { background: var(--rail); color: #fff; border-radius: var(--r); }
+dialog { border-radius: var(--r-lg); }
+.authcard { border-radius: var(--r-lg); }
+
+/* tablet / phone: the rail becomes a bottom bar */
+@media (max-width: 900px) {
+  body { padding-bottom: 68px; }
+  .rail { position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: 64px; flex-direction: row; justify-content: space-around; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); gap: 2px; overflow: visible; }
+  .rail-logo, .rail-sep { display: none; }
+  .rail-btn { width: auto; flex: 1 1 0; max-width: 72px; background: none; padding: 6px 0 5px; font-size: 10px; }
+  #samplesView, #combineView { margin: 0 12px 12px; }
+  main { padding: 0 12px 12px; }
+  .rail-btn:disabled { display: none; }
+  .top .brand { flex-wrap: wrap; }
+  .top h1, .top .chip, .top .state { white-space: normal; }
+  .crumb { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .rail-btn { transition: none; } }
 </style>
 </head>
 <body class="view-samples">
+<nav class="rail" id="rail" aria-label="Main">
+  <span class="rail-logo" aria-hidden="true">DW</span>
+  <button class="rail-btn" type="button" data-go="samples"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></svg><span>Samples</span></button>
+  <button class="rail-btn" type="button" data-go="combine"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5h16"/><path d="m5 15 4-5 4 3 6-7"/><path d="m5 18 5-3 4 1 5-4" opacity=".55"/></svg><span>Compare</span></button>
+  <span class="rail-sep" aria-hidden="true"></span>
+  <button class="rail-btn" type="button" data-go="sheet"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15"/></svg><span>Worksheet</span></button>
+  <button class="rail-btn" type="button" data-go="plot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16h16"/><path d="m7.5 15 3.5-4.5 3 2.5 5-6.5"/></svg><span>Plot</span></button>
+  <button class="rail-btn" type="button" data-go="formula"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5h-1.5A2.5 2.5 0 0 0 10 7v10a2.5 2.5 0 0 1-2.5 2.5H6M7 10.5h6.5"/><path d="m14.5 12.5 5 6M19.5 12.5l-5 6"/></svg><span>Formulas</span></button>
+  <button class="rail-btn" type="button" data-go="stats"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6.5" rx=".8"/><rect x="10.5" y="6" width="3" height="11.5" rx=".8"/><rect x="15.5" y="9" width="3" height="8.5" rx=".8"/></svg><span>Statistics</span></button>
+  <button class="rail-btn" type="button" data-go="origin"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 13.5v4A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-4"/></svg><span>Origin</span></button>
+</nav>
 <header class="top">
   <div class="brand">
     <button class="btn small bench-only" id="btnBack" type="button">&larr; Samples</button>
-    <svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect x="1" y="1" width="24" height="24" rx="6" fill="currentColor" opacity=".14"/><path d="M6 19.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".55"/><path d="M6.5 16.5 10.5 9l4 4.5L19.5 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="crumb">Data Workbench <span aria-hidden="true">/</span></span>
     <h1 id="viewTitle">Samples</h1>
     <span class="chip bench-only" id="dsChip" hidden>Example data</span>
     <span class="chip sbx" id="sbxChip" hidden>Sandbox: test copy, separate from the live site</span>
@@ -262,6 +395,7 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
   </div>
   <div class="actions">
     <span class="who samples-only" id="whoAmI" hidden></span>
+    <span class="avatar" id="avatar" hidden></span>
     <button class="btn samples-only" id="btnCopyLive" type="button" hidden title="Replace the sandbox's test data with a copy of the live samples">Copy live data here</button>
     <button class="btn samples-only" id="btnPublishData" type="button" hidden title="Replace the live site's data with the sandbox's data (asks for the PIN)">Publish sandbox data to live</button>
     <a class="btn samples-only" id="lnkPublishCode" hidden target="_blank" rel="noopener" title="Opens GitHub, where Run workflow copies the sandbox's code to the live site">Publish code to live ↗</a>
@@ -485,8 +619,53 @@ body.view-auth main, body.view-auth #samplesView, body.view-auth .actions { disp
 <script src="../lib/plotly.min.js"></script>
 <script src="../lib/xlsx.full.min.js"></script>
 <script src="../lib/supabase.js"></script>
-<script src="config.js?v=1794412426"></script>
-<script src="core.js?v=1794412426"></script>
-<script src="app.js?v=1794412426"></script>
+<script src="config.js?v=1794473557"></script>
+<script src="core.js?v=1794473557"></script>
+<script src="app.js?v=1794473557"></script>
+<script>
+/* Tool rail: drives the existing views and tabs by clicking their own controls, and mirrors their state. */
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id), body = document.body, rail = $("rail"), tabs = document.querySelector(".tabs");
+  const view = () => body.classList.contains("view-auth") ? "auth" : body.classList.contains("view-combine") ? "combine" : body.classList.contains("view-bench") ? "bench" : "samples";
+  const narrow = () => matchMedia("(max-width: 900px)").matches;
+  function sync() {
+    const v = view(), sel = tabs.querySelector('[aria-selected="true"]'), tab = sel ? sel.dataset.tab : "";
+    rail.querySelectorAll("[data-go]").forEach((b) => {
+      const g = b.dataset.go, label = b.textContent.trim();
+      const off = v === "auth" || (g === "combine" ? v === "bench" : g !== "samples" && v !== "bench");
+      const on = v === g || (v === "bench" && g === tab);
+      b.disabled = off;
+      b.classList.toggle("on", on);
+      if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+      b.title = !off ? label : g === "combine" ? "Go back to Samples, tick samples, then Compare" : "Open a sample first";
+    });
+  }
+  rail.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-go]");
+    if (!b || b.disabled) return;
+    const g = b.dataset.go, v = view(), panes = document.querySelectorAll("main > .pane");
+    if (g === "samples") { if (v !== "samples") $("btnBack").click(); }
+    else if (g === "combine") { if (v === "samples") $("btnCombine").click(); }
+    else if (g === "sheet") { panes[0].scrollIntoView({ behavior: "smooth", block: "start" }); }
+    else { const t = tabs.querySelector('[data-tab="' + g + '"]'); if (t) t.click(); if (narrow()) panes[1].scrollIntoView({ behavior: "smooth", block: "start" }); }
+  });
+  const who = $("whoAmI"), av = $("avatar");
+  function syncWho() {
+    const t = who.textContent.trim(), name = t.split("@")[0].split(/[._\-+]+/).filter(Boolean);
+    av.hidden = who.hidden || !t;
+    av.textContent = ((name[0] || "")[0] || "").toUpperCase() + ((name[1] || name[0] || "")[name[1] ? 0 : 1] || "").toUpperCase();
+    av.title = "Signed in as " + t;
+  }
+  new MutationObserver(sync).observe(body, { attributes: true, attributeFilter: ["class"] });
+  new MutationObserver(sync).observe(tabs, { attributes: true, subtree: true, attributeFilter: ["aria-selected"] });
+  new MutationObserver(syncWho).observe(who, { attributes: true, childList: true, characterData: true, subtree: true });
+  const chip = $("sbxChip");
+  const st = $("saveState");
+  const syncChip = () => { chip.title = chip.textContent; st.title = st.textContent; };
+  [chip, st].forEach((el) => new MutationObserver(syncChip).observe(el, { childList: true, characterData: true, subtree: true }));
+  sync(); syncWho(); syncChip();
+})();
+</script>
 </body>
 </html>
