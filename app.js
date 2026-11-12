@@ -9,7 +9,7 @@
 
   const S = {
     cols: [], n: 0, page: 0, example: true, editFormula: -1, sel: [], selAnchor: -1, readonly: false, seq: null, seqSel: new Set(), seqSelMode: false,
-    plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false, stepColors: true },
+    plot: { type: "scatter", x: 0, ys: [1], err: -1, logx: false, logy: false, showFit: true, title: "", xl: "", yl: "", yr: "", right: [], logy2: false, stepColors: true, xmin: "", xmax: "", xstep: "", ymin: "", ymax: "", ystep: "", y2min: "", y2max: "" },
     stat: { type: "desc", x: 0, y: 1, order: 1, model: "expdec", expr: "a*exp(-x/b) + c", init: "", groups: [], paired: false },
     fit: null, statText: "",
   };
@@ -96,6 +96,7 @@
     S.plot.x = nc.length > 1 ? nc[0] : -1;
     S.plot.ys = nc.length > 1 ? [nc[1]] : nc.slice(0, 1);
     S.plot.err = -1; S.plot.logx = S.plot.logy = S.plot.logy2 = false; S.plot.title = S.plot.xl = S.plot.yl = S.plot.yr = ""; S.plot.right = [];
+    AXF.forEach((k) => { S.plot[k] = ""; });
     if (["hist", "box"].indexOf(S.plot.type) >= 0) S.plot.type = "scatter";
     S.stat.x = nc.length ? nc[0] : 0; S.stat.y = nc.length > 1 ? nc[1] : 0; S.stat.groups = nc.slice(1, 4);
     renderAll();
@@ -108,6 +109,39 @@
     T.x = Math.max(0, m(T.x)); T.y = Math.max(0, m(T.y)); T.groups = T.groups.map(m).filter((i) => i >= 0);
     S.fit = null; S.editFormula = -1;
   }
+  /* ---------- axis scale: minimum, maximum and tick step typed by the user; an empty box means automatic ---------- */
+  const AXF = ["xmin", "xmax", "xstep", "ymin", "ymax", "ystep", "y2min", "y2max"];
+  function numOrNull(v) {
+    const t = String(v === undefined || v === null ? "" : v).trim().replace(",", ".");
+    if (!t) return null;
+    const n = Number(t);
+    return isFinite(n) ? n : null;
+  }
+  // Returns a short message when a typed value cannot be used, otherwise "".
+  function setAxisScale(axis, lo, hi, step, log, values, name) {
+    let a = numOrNull(lo), b = numOrNull(hi), msg = "";
+    const st = numOrNull(step), tr = (v) => (log ? Math.log10(v) : v);
+    if (log && ((a !== null && a <= 0) || (b !== null && b <= 0))) { msg = name + ": a log axis needs limits above 0, so that limit is ignored."; if (a !== null && a <= 0) a = null; if (b !== null && b <= 0) b = null; }
+    let dlo = Infinity, dhi = -Infinity;
+    for (let i = 0; i < values.length; i++) { const v = values[i]; if (typeof v !== "number" || !isFinite(v) || (log && v <= 0)) continue; const w = tr(v); if (w < dlo) dlo = w; if (w > dhi) dhi = w; }
+    if (dlo === Infinity) { dlo = 0; dhi = 1; }
+    const pad = (dhi - dlo) * 0.05 || 0.5;
+    let r0 = dlo - pad, r1 = dhi + pad;
+    if (a !== null || b !== null) {
+      if (a !== null) r0 = tr(a);
+      if (b !== null) r1 = tr(b);
+      if (r1 > r0) { axis.range = [r0, r1]; axis.autorange = false; }
+      else { msg = name + ": the minimum has to be below the maximum, so the limits are ignored."; r0 = dlo - pad; r1 = dhi + pad; }
+    }
+    if (st !== null) {
+      if (log) msg = msg || name + ": a tick step applies to linear axes only.";
+      else if (st <= 0 || (r1 - r0) / st > 400) msg = msg || name + ": that tick step would give too many ticks, so it is ignored.";
+      else { axis.dtick = st; axis.tick0 = a !== null ? a : 0; }
+    }
+    return msg;
+  }
+  const pluck = (traces, key, pick) => { const out = []; traces.forEach((t) => { if (pick(t) && Array.isArray(t[key])) t[key].forEach((v) => out.push(v)); }); return out; };
+
   function changed() { S.example = false; C.recompute(S.cols, S.n); histRecord(); }
 
   /* ---------- undo / redo for the open table ---------- */
@@ -426,7 +460,10 @@
     $("pLogX").checked = P.logx; $("pLogY").checked = P.logy; $("pFit").checked = P.showFit;
     $("pStepWrap").hidden = !S.seq; $("pStep").checked = P.stepColors !== false;
     $("pTitle").value = P.title; $("pXL").value = P.xl; $("pYL").value = P.yl; $("pYR").value = P.yr;
+    AXF.forEach((k) => { $("pAx_" + k).value = P[k] || ""; });
+    $("pAxY2").hidden = !P.right.length;
   }
+  $("pAxReset").addEventListener("click", () => { AXF.forEach((k) => { S.plot[k] = ""; }); renderPlotControls(); drawPlot(); renderOrigin(); });
   function plotLabels() {
     const P = S.plot;
     const auto = (idx) => { const ys = idx.map((i) => S.cols[i]), units = ys.map((c) => c.unit || ""), same = units.every((u) => u === units[0]); return ys.length === 1 ? axisName(ys[0]) : ys.length && same && units[0] ? units[0] : ""; };
@@ -512,6 +549,11 @@
     }
     if (!traces.length) layout.annotations = [{ text: "Choose at least one Y column", showarrow: false, font: { color: muted, size: 14 } }];
     else if (S.seq && xy && P.x === 0 && !P.logx) stepMarks(layout, S.seq.bounds, muted);
+    const axMsgs = [];
+    if (P.type !== "box") axMsgs.push(setAxisScale(layout.xaxis, P.xmin, P.xmax, P.xstep, xy && P.logx, pluck(traces, "x", () => true), "X axis"));
+    if (P.type !== "hist") axMsgs.push(setAxisScale(layout.yaxis, P.ymin, P.ymax, P.ystep, xy && P.logy, pluck(traces, "y", (t) => t.yaxis !== "y2"), "Y axis"));
+    if (layout.yaxis2) axMsgs.push(setAxisScale(layout.yaxis2, P.y2min, P.y2max, "", P.logy2, pluck(traces, "y", (t) => t.yaxis === "y2"), "Right Y axis"));
+    $("pAxNote").textContent = axMsgs.filter(Boolean).join(" ");
     layout.dragmode = selectable && S.seqSelMode ? "select" : "zoom";
     window.Plotly.react(el, traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: selectable && S.seqSelMode ? ["toImage"] : ["toImage", "lasso2d", "select2d"] });
     if (!el._dwSel && el.on) {
@@ -537,6 +579,7 @@
   function readPlotControls() {
     const P = S.plot;
     P.stepColors = $("pStep").checked;
+    AXF.forEach((k) => { P[k] = $("pAx_" + k).value.trim(); });
     P.type = $("pType").value; P.x = +$("pX").value; P.err = +$("pErr").value;
     P.logx = $("pLogX").checked; P.logy = $("pLogY").checked; P.showFit = $("pFit").checked;
     P.title = $("pTitle").value; P.xl = $("pXL").value; P.yl = $("pYL").value; P.yr = $("pYR").value; P.logy2 = $("pLogY2").checked;
@@ -786,13 +829,15 @@
   /* ---------- storage: the artifact's database, or this browser as a fallback ---------- */
   const Store = { db: null, sb: null, remote: false, local: false, broken: false, email: "" };
   const CFG = window.DW_CONFIG || {};
-  const PFX = CFG.dataPrefix || "";
+  // demo mode (address ends in ?demo): no sign-in and no database; everything stays in the visitor's own browser
+  const DEMO = /[?&]demo(=|&|$)/.test(location.search);
+  const PFX = DEMO ? "demo/" : CFG.dataPrefix || "";
   const sbErr = (error) => { const e = new Error(error.message || "Request failed"); e.code = error.code === "42501" ? "not_granted" : error.code; return e; };
   const timeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms))]);
   Store.init = async function () {
     const inClaude = !!(window.claude && typeof window.claude.use === "function");
     try { if (inClaude) Store.db = await timeout(window.claude.use("db"), 11000, "timeout"); } catch (e) { Store.db = null; }
-    if (!inClaude && CFG.supabaseUrl && CFG.supabaseKey && window.supabase) {
+    if (!inClaude && !DEMO && CFG.supabaseUrl && CFG.supabaseKey && window.supabase) {
       Store.sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
       Store.remote = true;
     }
@@ -1336,7 +1381,8 @@
 
   /* ---------- combined plot: several samples in one graph ---------- */
   const SEL = new Set();
-  const CMP = { fn: "overlap", group: "all", sheet: "", x: "", y: "", type: "linesym", logx: false, logy: false, sd: true, ind: false, title: "", xl: "", yl: "", samples: [], sets: [], missing: [], built: null, token: 0 };
+  const CAXF = ["xmin", "xmax", "xstep", "ymin", "ymax", "ystep"];
+  const CMP = { fn: "overlap", group: "all", sheet: "", x: "", y: "", type: "linesym", logx: false, logy: false, sd: true, ind: false, title: "", xl: "", yl: "", xmin: "", xmax: "", xstep: "", ymin: "", ymax: "", ystep: "", samples: [], sets: [], missing: [], built: null, token: 0 };
   const key = (s) => String(s || "").trim().toLowerCase();
   function updateCombineBtn() {
     if (!R) return;
@@ -1422,6 +1468,7 @@
     const merge = CMP.fn === "merge";
     $("cGroupWrap").hidden = !merge; $("cSDWrap").hidden = !merge; $("cIndWrap").hidden = !merge;
     $("cTitle").value = CMP.title; $("cXL").value = CMP.xl; $("cYL").value = CMP.yl;
+    CAXF.forEach((k) => { $("cAx_" + k).value = CMP[k] || ""; });
     drawCombine();
   }
   function drawCombine() {
@@ -1459,6 +1506,11 @@
       if (agree) stepMarks(layout, b0, muted);
       else if (b0 && bs.every(Boolean)) stepsDiffer = true;
     }
+    const axMsgs = [
+      setAxisScale(layout.xaxis, CMP.xmin, CMP.xmax, CMP.xstep, CMP.logx, pluck(traces, "x", () => true), "X axis"),
+      setAxisScale(layout.yaxis, CMP.ymin, CMP.ymax, CMP.ystep, CMP.logy, pluck(traces, "y", () => true), "Y axis"),
+    ].filter(Boolean);
+    $("cAxNote").textContent = axMsgs.join(" ");
     const left = CMP.missing.concat(B.skipped);
     let note = (CMP.fn === "merge" ? "Averaging " : "Showing ") + B.curves.length + " of " + CMP.samples.length + " selected samples: " + B.curves.map((c) => c.name).join(", ") + ".";
     if (left.length) note += " Not included: " + left.join("; ") + ".";
@@ -1483,11 +1535,13 @@
   $("combineView").addEventListener("change", (e) => {
     const id = e.target.id, sheetBefore = CMP.sheet;
     CMP.fn = $("cFn").value; CMP.group = $("cGroup").value; CMP.sheet = $("cSheet").value; CMP.x = $("cX").value; CMP.y = $("cY").value;
+    CAXF.forEach((k) => { CMP[k] = $("cAx_" + k).value.trim(); });
     CMP.type = $("cType").value; CMP.logx = $("cLogX").checked; CMP.logy = $("cLogY").checked; CMP.sd = $("cSD").checked; CMP.ind = $("cInd").checked;
     if (id === "cTitle" || id === "cXL" || id === "cYL") return;
     if (CMP.sheet !== sheetBefore) loadCombine(); else renderCombine();
   });
   ["cTitle", "cXL", "cYL"].forEach((id) => $(id).addEventListener("input", () => { CMP.title = $("cTitle").value; CMP.xl = $("cXL").value; CMP.yl = $("cYL").value; drawCombine(); }));
+  $("cAxReset").addEventListener("click", () => { CAXF.forEach((k) => { CMP[k] = ""; }); renderCombine(); });
   $("cCopyData").addEventListener("click", () => copyText(combineTable(), "Plotted data"));
   $("cPng").addEventListener("click", async () => { try { saveFile("combined_plot.png", dataUrlToBlob(await plotImage("png", "cChartIn"))); } catch (e) { toast("The plot could not be exported."); } });
   $("cSvg").addEventListener("click", async () => { try { const u = await plotImage("svg", "cChartIn"); saveFile("combined_plot.svg", decodeURIComponent(u.slice(u.indexOf(",") + 1))); } catch (e) { toast("The plot could not be exported."); } });
@@ -1537,7 +1591,11 @@
   $("btnSignOut").addEventListener("click", () => { flush(); signOut(); });
   $("authOut").addEventListener("click", signOut);
 
-  if (CFG.sandbox) {
+  if (DEMO) {
+    document.title = "Data Workbench (demo)";
+    $("sbxChip").textContent = "Demo: no sign-in, nothing is shared, your changes stay in this browser";
+    $("sbxChip").hidden = false;
+  } else if (CFG.sandbox) {
     document.title = "Data Workbench (sandbox)";
     $("sbxChip").hidden = false;
   }
