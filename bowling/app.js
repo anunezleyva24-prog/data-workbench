@@ -62,7 +62,7 @@
   }
 
   function colChart(o) { // o: {cats, series:[{label,color,values}], decimals, showValues, label, xTitle}
-    var W = 400, H = 230, L = 44, R = 8, T = 16, B = 34;
+    var W = 400, H = o.rotate ? 262 : 230, L = 44, R = 8, T = 16, B = o.rotate ? 54 : 34;
     var max = 0; o.series.forEach(function (s) { s.values.forEach(function (v) { if (v > max) max = v; }); });
     var ny = niceMax(max <= 0 ? 1 : max);
     if (max <= 10 && max > 0) { var st = max <= 5 ? 1 : 2; ny = { step: st, max: Math.ceil(max / st) * st }; }
@@ -73,7 +73,8 @@
     for (v = 0; v <= ny.max + 1e-9; v += ny.step) out += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text x="' + (L - 5) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + '</text>';
     o.cats.forEach(function (c, i) {
       var gx = L + gw * i;
-      out += '<text x="' + (gx + gw / 2) + '" y="' + (H - 17) + '" text-anchor="middle">' + esc(c) + '</text>';
+      if (o.rotate) out += '<text transform="translate(' + (gx + gw / 2 + 3) + ' ' + (T + ph + 14) + ') rotate(-40)" text-anchor="end">' + esc(c) + '</text>';
+      else out += '<text x="' + (gx + gw / 2) + '" y="' + (H - 17) + '" text-anchor="middle">' + esc(c) + '</text>';
       o.series.forEach(function (s, j) {
         var val = s.values[i], bx = gx + gw * 0.11 + bw * j, bh = ph * val / ny.max;
         out += '<rect rx="2" x="' + bx.toFixed(1) + '" y="' + (T + ph - bh).toFixed(1) + '" width="' + (bw - 1).toFixed(1) + '" height="' + Math.max(bh, 0).toFixed(1) + '" style="fill:' + s.color + '"><title>' + esc(s.label + ' – ' + o.cats[i] + ': ' + (o.decimals ? rnd(val, o.decimals) : val)) + '</title></rect>';
@@ -112,8 +113,22 @@
   function legend(items) {
     return '<div class="legend">' + items.map(function (i) { return '<span><i style="background:' + i.color + '"></i>' + esc(i.label) + '</span>'; }).join('') + '</div>';
   }
-  var R1 = 'var(--c0)', R2 = 'var(--c1)';
+  function rcol(r) { return 'var(--c' + ((r - 1) % 8) + ')'; }
   var FR = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+  var NR = event.rounds, FPG = FR.length, FPP = NR * FPG;           // rounds, frames per game, frames per player
+  var ROUNDS = []; for (var ri = 1; ri <= NR; ri++) ROUNDS.push(ri);
+  var NGAMES = event.games, NPHOTOS = DATA.games.length;
+  var LANES = event.lanes;
+  var WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+  function word(n) { return WORDS[n] || String(n); }
+  function sparkline(scores) {
+    var w = 64, h = 20, lo = event.lowestScore, hi = event.highestScore, span = Math.max(1, hi - lo);
+    var pts = scores.map(function (v, i) { return [scores.length > 1 ? 3 + (w - 6) * i / (scores.length - 1) : w / 2, 3 + (h - 6) * (1 - (v - lo) / span)]; });
+    var last = pts[pts.length - 1];
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Trend ' + esc(scores.join(' to ')) + '"><polyline fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" points="' +
+      pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/><circle r="2.4" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" fill="currentColor"/></svg>';
+  }
+  function seq(scores) { return scores.join(' → '); }
 
   /* ---------- Header ---------- */
   function renderHeader() {
@@ -127,7 +142,8 @@
       b.innerHTML = '<strong>Scorecard check failed (' + verification.mismatches.length + ' mismatch' + (verification.mismatches.length === 1 ? '' : 'es') + '):</strong><ul>' +
         verification.mismatches.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>';
     }
-    var hi = event.highlights, hiTxt = event.highest.map(function (x) { return x.player + ' (' + where(x) + ')'; }).join(', ');
+    $('foot').textContent = 'All numbers are computed in your browser from the individual balls transcribed from ' + word(NPHOTOS) + ' scoreboard photos.';
+    var hiTxt = event.highest.map(function (x) { return x.player + ' (' + where(x) + ')'; }).join(', ');
     var lo = event.lowest.map(function (x) { return x.player + ' (' + where(x) + ')'; }).join(', ');
     var st = event.stats;
     function card(k, v, n) { return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="n">' + (n || '&nbsp;') + '</div></div>'; }
@@ -143,17 +159,17 @@
     var maxS = Math.max.apply(null, board.map(function (b) { return b.series; }));
     var anyTie = board.some(function (b) { return b.tied; });
     var rows = board.map(function (b) {
-      var g1 = b.games[0], g2 = b.games[1];
       return '<tr><td class="rank">' + (b.tied ? 'T' : '') + b.rank + (b.rank === 1 ? ' <span class="gold" title="Highest series">★</span>' : '') + '</td>' +
         '<td class="l sticky">' + plink(b.player) + '</td>' +
-        '<td>' + g1.total + '<span class="tag">L' + g1.lane + '</span></td><td>' + g2.total + '<span class="tag">L' + g2.lane + '</span></td>' +
+        b.games.map(function (g) { return '<td>' + g.total + '<span class="tag">L' + g.lane + '</span></td>'; }).join('') +
         '<td><strong>' + b.series + '</strong><span class="bar" style="width:' + Math.round(b.series / maxS * 60) + 'px"></span></td>' +
         '<td>' + f1(b.average) + '</td><td>' + b.best + '</td></tr>';
     }).join('');
-    $('leaderboard').innerHTML = '<h2>Leaderboard</h2><p class="lede">Ranked by series total (game 1 + game 2). ' +
+    var gameHeads = ROUNDS.map(function (r) { return '<th>Game ' + r + '</th>'; }).join('');
+    $('leaderboard').innerHTML = '<h2>Leaderboard</h2><p class="lede">Ranked by series total (' + ROUNDS.map(function (r) { return 'game ' + r; }).join(' + ') + '). ' +
       (anyTie ? 'Players with equal series share a rank, shown as T (tied); the next rank is skipped.' : 'No ties in the series totals this time; equal series would share a rank (shown as T) and the next rank would be skipped.') +
-      ' Game 1 = round 1, game 2 = round 2. Click a name for the player view.</p>' +
-      '<div class="table-wrap"><table class="data"><thead><tr><th>Rank</th><th class="l sticky">Player</th><th>Game 1</th><th>Game 2</th><th>Series</th><th>Average</th><th>Best game</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      ' Game N = round N; the small tag is the lane. Average = series / ' + NR + '. Click a name for the player view.</p>' +
+      '<div class="table-wrap"><table class="data"><thead><tr><th>Rank</th><th class="l sticky">Player</th>' + gameHeads + '<th>Series</th><th>Average</th><th>Best game</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   /* ---------- Highlights ---------- */
@@ -161,21 +177,26 @@
     var bf = hl.bestFrame, ms = hl.mostImproved, st = hl.mostStrikes, ss = hl.strikeStreak, mk = hl.markStreak;
     function item(t, h, d) { return '<div class="item"><div class="t">' + t + '</div><div class="h">' + h + '</div><div class="d">' + d + '</div></div>'; }
     var bfTxt = bf.items.map(function (x) { return x.player + ' · ' + where(x) + ' · frame ' + x.frame + ' (' + x.raw + ')'; }).join('; ');
-    var lane = hl.lanes, round = hl.rounds;
-    var laneDiff = lane.length === 2 ? +rnd(lane[1].average, 1) - +rnd(lane[0].average, 1) : 0;
-    var rdDiff = round.length === 2 ? +rnd(round[1].average, 1) - +rnd(round[0].average, 1) : 0;
+    var lane = hl.lanes, round = hl.rounds, sd = event.sd;
+    function byAvg(list) { return list.slice().sort(function (x, y) { return y.average - x.average; }); }
+    var lanesSorted = byAvg(lane), roundsSorted = byAvg(round);
+    var laneDiff = lanesSorted.length >= 2 ? +rnd(lanesSorted[0].average, 1) - +rnd(lanesSorted[lanesSorted.length - 1].average, 1) : 0;
+    var rdDiff = roundsSorted.length >= 2 ? +rnd(roundsSorted[0].average, 1) - +rnd(roundsSorted[roundsSorted.length - 1].average, 1) : 0;
+    function vsSd(d) { return d < sd ? 'smaller' : 'larger'; }
+    var sc = hl.mostConsistent;
     var html = '<h2>Highlights</h2><p class="lede">All computed from the balls.</p><div class="hl" style="display:grid">' +
       item('Best single frame', bf.value + ' points', esc(bfTxt) + '. A strike scores 10 plus the next two balls, so a frame can be worth up to 30.') +
-      item('Most improved', ms.items.length ? esc(joinNames(names(ms.items))) + ' ' + sgn(ms.value) : '–', ms.items.map(function (x) { return esc(x.player) + ': ' + x.games[0].total + ' → ' + x.games[1].total + ' (' + (x.improvementPct >= 0 ? '+' : '') + x.improvementPct.toFixed(0) + '%)'; }).join('; ') + '. Round 2 score minus round 1 score (only two games each, so a big swing can just be a good or bad night).') +
-      item('Most strikes', esc(joinNames(names(st.items))) + ' · ' + st.value, 'Strike count over both games' + (st.items.length > 1 ? ' (tie)' : '') + '.') +
+      item('Most improved', ms.items.length ? esc(joinNames(names(ms.items))) + ' ' + sgn(ms.value) : '–', ms.items.map(function (x) { return esc(x.player) + ': ' + seq(x.scores) + ' (' + (x.improvementPct >= 0 ? '+' : '') + rnd(x.improvementPct, 0) + '%)'; }).join('; ') + '. Last game (round ' + NR + ') minus first game (round 1). With only ' + word(NR) + ' games each, a big swing can just be a good or bad night, and it ignores what happened in between.') +
+      item('Most consistent', esc(joinNames(names(sc.items))) + ' · SD ' + f1(sc.items[0].consistency), sc.items.map(function (x) { return esc(x.player) + ': ' + seq(x.scores); }).join('; ') + '. Lowest standard deviation of game scores (lower = steadier). With ' + word(NR) + ' games each this is a rough guide only.') +
+      item('Most strikes', esc(joinNames(names(st.items))) + ' · ' + st.value, 'Strike count over all ' + NR + ' games' + (st.items.length > 1 ? ' (tie)' : '') + '.') +
       item('Longest strike streak', ss.value + ' in a row', ss.items.map(function (x) { return esc(x.player) + ' (' + where(x) + ')'; }).join(', ') + '. Consecutive strike balls in one game.') +
       item('Longest mark streak', mk.value + ' frames', mk.items.map(function (x) { return esc(x.player) + ' (' + where(x) + ')'; }).join(', ') + '. Consecutive frames ending in a strike or spare.') +
       item('Best first ball', esc(joinNames(names(hl.bestFirstBall.items))) + ' · ' + f1(summaries[hl.bestFirstBall.items[0].player].stats.firstBallAvg), 'Highest average pins on the first ball of each frame.') +
-      item('Fewest zero balls', esc(joinNames(names(hl.fewestZero.items))) + ' · ' + (-hl.fewestZero.value), 'Balls that knocked down nothing (“-”) over both games. Players who throw strikes throw fewer balls, so this slightly favours strikers.') +
-      item('Lane 25 vs lane 26', lane.map(function (l) { return 'L' + l.lane + ' ' + f1(l.average); }).join(' · '),
-        lane.map(function (l) { return 'Lane ' + l.lane + ': ' + l.games + ' games, ' + l.total + ' pins, ' + l.strikes + ' strikes'; }).join('. ') + '. Lane ' + (laneDiff >= 0 ? lane[1].lane : lane[0].lane) + ' averaged ' + Math.abs(laneDiff).toFixed(1) + ' pins more per game. Different players bowled each lane (and each round), so this is not a pure lane effect; with only 8 games per lane the gap is within normal game-to-game swings.') +
-      item('Round 1 vs round 2', round.map(function (r) { return 'R' + r.round + ' ' + f1(r.average); }).join(' · '),
-        round.map(function (r) { return 'Round ' + r.round + ': ' + r.games + ' games, ' + r.total + ' pins, ' + r.strikes + ' strikes'; }).join('. ') + '. Round ' + (rdDiff >= 0 ? round[1].round : round[0].round) + ' averaged ' + Math.abs(rdDiff).toFixed(1) + ' pins more per game. Same eight players in both rounds, but with only 8 games each the gap is small next to normal game-to-game swings.') +
+      item('Fewest zero balls', esc(joinNames(names(hl.fewestZero.items))) + ' · ' + (-hl.fewestZero.value), 'Balls that knocked down nothing (“-”) over all ' + NR + ' games. Players who throw strikes throw fewer balls, so this slightly favours strikers.') +
+      item('Lane ' + LANES.join(' vs lane '), lane.map(function (l) { return 'L' + l.lane + ' ' + f1(l.average); }).join(' · '),
+        lane.map(function (l) { return 'Lane ' + l.lane + ': ' + l.games + ' games, ' + l.total + ' pins, ' + l.strikes + ' strikes'; }).join('. ') + '. Lane ' + lanesSorted[0].lane + ' averaged ' + rnd(laneDiff, 1) + ' pins more per game' + (lanesSorted.length > 2 ? ' than the lowest lane' : '') + '. Players were not all on the same lane in each round, so this is not a pure lane effect; with only ' + lane[0].games + ' games per lane the gap is ' + vsSd(laneDiff) + ' than the standard deviation of single games (' + f1(sd) + ' pins).') +
+      item(ROUNDS.map(function (r) { return 'Round ' + r; }).join(' vs '), round.map(function (r) { return 'R' + r.round + ' ' + f1(r.average); }).join(' · '),
+        round.map(function (r) { return 'Round ' + r.round + ': ' + r.games + ' games, ' + r.total + ' pins, ' + r.strikes + ' strikes'; }).join('. ') + '. Round ' + roundsSorted[0].round + ' averaged highest, round ' + roundsSorted[roundsSorted.length - 1].round + ' lowest, ' + rnd(rdDiff, 1) + ' pins apart. Same ' + word(event.players) + ' players in every round, but with only ' + round[0].games + ' games per round the spread is ' + vsSd(rdDiff) + ' than the standard deviation of single games (' + f1(sd) + ' pins).') +
       '</div>';
     $('highlights').innerHTML = html;
   }
@@ -202,7 +223,7 @@
   function renderScorecards() {
     var head = '<div class="crow head"><div>Player</div>' + FR.map(function (n) { return '<div>' + n + '</div>'; }).join('') + '<div>Total</div></div>';
     var order = DATA.games.slice().sort(function (a, b) { return a.round - b.round || a.lane - b.lane; });
-    var out = '<h2>Scorecards</h2><p class="lede">The four scoreboards, rebuilt from the balls. Each box shows the balls (X strike, / spare, - zero) above the running total. Scroll sideways inside a card on small screens.</p>';
+    var out = '<h2>Scorecards</h2><p class="lede">The ' + word(NPHOTOS) + ' scoreboards, rebuilt from the balls. Each box shows the balls (X strike, / spare, - zero) above the running total. Scroll sideways inside a card on small screens.</p>';
     order.forEach(function (g) {
       out += '<div class="board"><div class="board-head"><strong>Round ' + g.round + ' · Lane ' + g.lane + '</strong><span class="muted small">photo ' + esc(g.photo) + ' · lane total ' + g.laneTotal + '</span></div>' +
         '<div class="scroll"><div class="card">' + head + cardRows(g, g.rows) + '</div></div></div>';
@@ -211,19 +232,21 @@
   }
 
   /* ---------- Charts ---------- */
+  // sel is 'round:N' (everyone in round N) or 'player:Name' (all of that player's games)
   function lineFor(sel) {
-    var series = [], title;
-    if (sel === 'R1' || sel === 'R2') {
-      var rn = sel === 'R1' ? 1 : 2;
+    var series = [], title, m = /^round:(\d+)$/.exec(sel);
+    if (m) {
+      var rn = Number(m[1]);
       title = 'Everyone – round ' + rn;
       DATA.players.forEach(function (p) {
         var g = summaries[p].games.filter(function (x) { return x.round === rn; })[0];
         series.push({ label: p + ' R' + rn, color: pcol(p), values: [0].concat(g.stats.running) });
       });
     } else {
-      title = sel;
-      summaries[sel].games.forEach(function (g) {
-        series.push({ label: sel + ' R' + g.round + ' (lane ' + g.lane + ')', color: g.round === 1 ? R1 : R2, values: [0].concat(g.stats.running) });
+      var pl = sel.replace(/^player:/, '');
+      title = pl;
+      summaries[pl].games.forEach(function (g) {
+        series.push({ label: pl + ' R' + g.round + ' (lane ' + g.lane + ')', color: rcol(g.round), values: [0].concat(g.stats.running) });
       });
     }
     return { series: series, title: title };
@@ -235,9 +258,9 @@
   }
   function barsHtml() {
     var groups = board.slice().sort(function (a, b) { return DATA.players.indexOf(a.player) - DATA.players.indexOf(b.player); }).map(function (b) {
-      return { label: b.player, bars: b.games.map(function (g) { return { value: g.total, color: g.round === 1 ? R1 : R2, tip: b.player + ' game ' + g.round + ' (lane ' + g.lane + '): ' + g.total }; }) };
+      return { label: b.player, bars: b.games.map(function (g) { return { value: g.total, color: rcol(g.round), tip: b.player + ' game ' + g.round + ' (lane ' + g.lane + '): ' + g.total }; }) };
     });
-    return legend([{ label: 'Game 1 (round 1)', color: R1 }, { label: 'Game 2 (round 2)', color: R2 }]) + hbarChart({ groups: groups, label: 'Game 1 versus game 2 score per player', xTitle: 'game score (pins)' });
+    return legend(ROUNDS.map(function (r) { return { label: 'Game ' + r + ' (round ' + r + ')', color: rcol(r) }; })) + hbarChart({ groups: groups, label: 'Game score per round for each player', xTitle: 'game score (pins)' });
   }
   function histHtml(rows, nm) {
     var h = S.firstBallHistogram(rows);
@@ -248,30 +271,126 @@
     return colChart({ cats: FR, series: [{ label: 'Average points', color: 'var(--c2)', values: a }], decimals: 1, showValues: true, label: 'Average points per frame across all games', xTitle: 'frame', yTitle: 'avg points' });
   }
   function renderCharts() {
-    var opts = '<option value="R1">Everyone – round 1</option><option value="R2">Everyone – round 2</option>' +
-      DATA.players.map(function (p) { return '<option value="' + esc(p) + '">' + esc(p) + ' (both games)</option>'; }).join('');
+    var opts = ROUNDS.map(function (r) { return '<option value="round:' + r + '">Everyone – round ' + r + '</option>'; }).join('') +
+      DATA.players.map(function (p) { return '<option value="player:' + esc(p) + '">' + esc(p) + ' (all ' + NR + ' games)</option>'; }).join('');
     $('charts').innerHTML = '<h2>Charts</h2><p class="lede">Hover or tap a mark for exact values.</p><div class="chart-grid">' +
       '<figure class="chart"><figcaption>Running total by frame</figcaption><div class="controls"><label for="lineSel" class="small muted">Show</label><select id="lineSel">' + opts + '</select></div><div id="lineBox"></div></figure>' +
-      '<figure class="chart"><figcaption>Game 1 vs game 2 per player</figcaption><div class="cap">Final score of each game.</div>' + barsHtml() + '</figure>' +
-      '<figure class="chart"><figcaption>First-ball pins histogram</figcaption><div class="cap">Everyone, all 160 frames: how many pins the first ball knocked down (10 = strike).</div>' + histHtml(rowsAll, 'Everyone') + '</figure>' +
-      '<figure class="chart"><figcaption>Average points by frame</figcaption><div class="cap">Mean frame score over all 16 games. A strike or spare frame includes its bonus balls, so it is worth more than the pins it knocked down.</div>' + frameAvgHtml() + '</figure>' +
+      '<figure class="chart"><figcaption>Game scores by round, per player</figcaption><div class="cap">Final score of each game.</div>' + barsHtml() + '</figure>' +
+      '<figure class="chart"><figcaption>First-ball pins histogram</figcaption><div class="cap">Everyone, all ' + (NGAMES * FPG) + ' frames: how many pins the first ball knocked down (10 = strike).</div>' + histHtml(rowsAll, 'Everyone') + '</figure>' +
+      '<figure class="chart"><figcaption>Average points by frame</figcaption><div class="cap">Mean frame score over all ' + NGAMES + ' games. A strike or spare frame includes its bonus balls, so it is worth more than the pins it knocked down.</div>' + frameAvgHtml() + '</figure>' +
       '</div>';
     var sel = $('lineSel');
     function upd() { $('lineBox').innerHTML = lineHtml(sel.value); }
     sel.addEventListener('change', upd); upd();
   }
 
+  /* ---------- All games ---------- */
+  var rankedGames = (function () {
+    var list = rowsAll.map(function (x, i) {
+      var st = x.stats;
+      return { player: x.player, round: x.round, lane: x.lane, score: x.total, strikes: st.strikes, spares: st.spares, opens: st.opens,
+        zeroBalls: st.zeroBalls, firstBallAvg: st.firstBallSum / FPG, cleanPct: st.cleanFrames / FPG * 100, cleanFrames: st.cleanFrames,
+        bestFrame: Math.max.apply(null, st.frameScores), order: i };
+    });
+    list.sort(function (a, b) { return b.score - a.score || playerIdx(a.player) - playerIdx(b.player) || a.round - b.round; });
+    list.forEach(function (g, i) { g.rank = i > 0 && list[i - 1].score === g.score ? list[i - 1].rank : i + 1; });
+    list.forEach(function (g) { g.tied = list.filter(function (o) { return o.score === g.score; }).length > 1; });
+    var pbs = {};
+    list.forEach(function (g) { if (!(g.player in pbs) || g.score > pbs[g.player]) pbs[g.player] = g.score; });
+    list.forEach(function (g) { g.pb = g.score === pbs[g.player]; g.top = g.score === event.highestScore; });
+    return list;
+  })();
+  var AG_COLS = [
+    ['rank', 'Rank', 'num', 'Rank by game score (ties share a rank).'],
+    ['player', 'Player', 'text', 'Player'],
+    ['round', 'Round', 'num', 'Round (game number) of this game.'],
+    ['lane', 'Lane', 'num', 'Lane bowled on.'],
+    ['score', 'Score', 'num', 'Final score of the game.'],
+    ['strikes', 'Strikes', 'num', 'Balls that were strikes (X), 10th-frame bonus balls included.'],
+    ['spares', 'Spares', 'num', 'Balls that were spares (/), 10th-frame bonus balls included.'],
+    ['opens', 'Opens', 'num', 'Frames 1-10 with neither a strike nor a spare.'],
+    ['zeroBalls', 'Zero balls', 'num', 'Balls that knocked down nothing (-).'],
+    ['firstBallAvg', '1st-ball avg', 'num', 'Average pins on the first ball of frames 1-10 (strike = 10).'],
+    ['cleanPct', 'Clean frames %', 'num', 'Frames 1-10 ending in a strike or spare, divided by ' + FPG + '.'],
+    ['bestFrame', 'Best frame', 'num', 'Highest single frame score in the game, bonuses included.']
+  ];
+  var agSort = { key: 'score', dir: 'desc' };
+  function agCell(key, g) {
+    switch (key) {
+      case 'rank': return (g.tied ? 'T' : '') + g.rank;
+      case 'player': return plink(g.player);
+      case 'round': return 'R' + g.round;
+      case 'lane': return g.lane;
+      case 'score': return '<strong>' + g.score + '</strong>' + (g.top ? ' <span class="gold" title="Highest game" aria-label="highest game">★</span>' : '') + (g.pb ? ' <span class="pb" title="Personal best" aria-label="personal best">PB</span>' : '');
+      case 'firstBallAvg': return f1(g.firstBallAvg);
+      case 'cleanPct': return pc(g.cleanPct) + frac(g.cleanFrames, FPG);
+      default: return g[key];
+    }
+  }
+  function agTable() {
+    var key = agSort.key, mul = agSort.dir === 'asc' ? 1 : -1;
+    var list = rankedGames.slice().sort(function (a, b) {
+      var x = a[key], y = b[key], c = typeof x === 'string' ? (x === y ? 0 : playerIdx(x) - playerIdx(y)) : x - y;
+      return c * mul || a.rank - b.rank || playerIdx(a.player) - playerIdx(b.player) || a.round - b.round;
+    });
+    var th = AG_COLS.map(function (c) {
+      var on = key === c[0], text = c[2] === 'text';
+      return '<th class="' + (text ? 'l ' : '') + 'sortable" ' + (on ? 'aria-sort="' + (agSort.dir === 'asc' ? 'ascending' : 'descending') + '"' : '') + '><button type="button" class="sortbtn" data-sort="' + c[0] + '" title="' + esc(c[3]) + '">' + c[1] +
+        ' <span class="arrow" aria-hidden="true">' + (on ? (agSort.dir === 'asc' ? '▲' : '▼') : '↕') + '</span></button></th>';
+    }).join('');
+    var tr = list.map(function (g) {
+      return '<tr' + (g.top ? ' class="top"' : '') + '>' + AG_COLS.map(function (c) { return '<td' + (c[2] === 'text' ? ' class="l"' : '') + '>' + agCell(c[0], g) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    return '<div class="table-wrap"><table class="data" id="agTbl"><caption class="sr">All ' + NGAMES + ' games, sorted by ' + esc(AG_COLS.filter(function (c) { return c[0] === key; })[0][1]) + ' ' + (agSort.dir === 'asc' ? 'ascending' : 'descending') + '</caption><thead><tr>' + th + '</tr></thead><tbody>' + tr + '</tbody></table></div>';
+  }
+  function renderAllGames() {
+    var scores = rowsAll.map(function (r) { return r.total; }), st = event.stats, frames = st.frames;
+    function card(k, v, n) { return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="n">' + (n || '&nbsp;') + '</div></div>'; }
+    var hiTxt = event.highest.map(function (x) { return x.player + ' (' + where(x) + ')'; }).join(', ');
+    var loTxt = event.lowest.map(function (x) { return x.player + ' (' + where(x) + ')'; }).join(', ');
+    var cards = '<div class="cards">' +
+      card('Games', event.games, event.players + ' players × ' + NR + ' rounds') + card('Total pins', event.totalPins) +
+      card('Mean score', f1(event.average)) + card('Median score', f1(event.median)) +
+      card('Std deviation', f1(event.sd), 'population SD of game scores') +
+      card('Highest game', event.highestScore, esc(hiTxt)) + card('Lowest game', event.lowestScore, esc(loTxt)) +
+      card('Strikes', st.strikes, 'balls marked X') + card('Spares', st.spares, 'balls marked /') +
+      card('Strike %', pc(st.strikePct), st.strikeFrames + ' of ' + frames + ' frames') +
+      card('Spare conversion', pc(st.spareConv), st.spareFrames + ' of ' + st.spareChances + ' chances') +
+      card('Open frames', pc(st.opens / frames * 100), st.opens + ' of ' + frames + ' frames') +
+      card('Zero balls', st.zeroBalls, 'balls with no pins') + card('Avg first ball', f1(st.firstBallAvg), 'pins, frames 1-10') + '</div>';
+    var bins = S.scoreHistogram(scores, 10);
+    var hist = colChart({ cats: bins.map(function (b) { return b.from + '–' + b.to; }), rotate: bins.length > 7, series: [{ label: 'Games', color: 'var(--c0)', values: bins.map(function (b) { return b.count; }) }],
+      showValues: true, label: 'Distribution of game scores in 10-pin bins', yTitle: 'number of games', xTitle: 'game score (pins)' });
+    var rAvg = colChart({ cats: ROUNDS.map(function (r) { return 'Round ' + r; }), series: [{ label: 'Mean score', color: 'var(--c2)', values: hl.rounds.map(function (r) { return r.average; }) }],
+      decimals: 1, showValues: true, label: 'Mean game score per round, all players', yTitle: 'mean score (pins)' });
+    $('allgames').innerHTML = '<h2>All games</h2><p class="lede">Every one of the ' + NGAMES + ' games on one board, and statistics for all of them combined. All values are computed from the balls.</p>' + cards +
+      '<div class="chart-grid" style="margin-top:16px"><figure class="chart"><figcaption>Score distribution</figcaption><div class="cap">Number of games per 10-pin score band (' + bins[0].from + '–' + bins[bins.length - 1].to + ').</div>' + hist + '</figure>' +
+      '<figure class="chart"><figcaption>Mean score per round</figcaption><div class="cap">All ' + event.players + ' players, ' + hl.rounds[0].games + ' games per round.</div>' + rAvg + '</figure></div>' +
+      '<h3>Every game</h3><p class="lede">Ranked by score. Click a column title to sort; click again to reverse. ★ marks the highest game, PB a player’s personal best.</p><div id="agWrap">' + agTable() + '</div>';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-sort]') : null;
+    if (!b) return;
+    var k = b.getAttribute('data-sort'), col = AG_COLS.filter(function (c) { return c[0] === k; })[0];
+    if (agSort.key === k) agSort.dir = agSort.dir === 'asc' ? 'desc' : 'asc';
+    else agSort = { key: k, dir: (col[2] === 'text' || k === 'rank') ? 'asc' : 'desc' };
+    $('agWrap').innerHTML = agTable();
+    var nb = $('agWrap').querySelector('[data-sort="' + k + '"]'); if (nb) nb.focus();
+  });
+
   /* ---------- Player stats ---------- */
   var COLS = [
     ['strikes', 'Strikes', 'Number of balls that were strikes (X), including strikes thrown as 10th-frame bonus balls.'],
     ['spares', 'Spares', 'Number of balls that picked up a spare (/), including 10th-frame bonus-ball spares.'],
-    ['strikePct', 'Strike %', 'Frames 1-10 whose first ball was a strike, divided by frames bowled (20 per player).'],
+    ['strikePct', 'Strike %', 'Frames 1-10 whose first ball was a strike, divided by frames bowled (' + FPP + ' per player).'],
     ['spareConv', 'Spare conv. %', 'Spares made divided by spare chances. A chance is a frame (1-10) where the first ball was not a strike. Strike frames are excluded.'],
     ['opens', 'Opens', 'Frames 1-10 with neither a strike nor a spare (an open frame).'],
     ['zeroBalls', 'Zero balls', 'Balls that knocked down no pins, shown as "-" on the board (gutter balls and misses).'],
     ['firstBallAvg', '1st-ball avg', 'Average pins on the first ball of frames 1-10 (a strike counts 10). Bonus balls in frame 10 are not included.'],
     ['cleanPct', 'Clean frames %', 'Frames 1-10 ending in a strike or spare (a "mark"), divided by frames bowled.'],
-    ['impr', 'R1 → R2', 'Round 2 score minus round 1 score, in pins. Positive means improved.']
+    ['impr', 'Last − first', 'Last game (round ' + NR + ') minus first game (round 1), in pins. Positive means the player finished higher than they started.'],
+    ['trend', 'Trend', 'The game scores in round order, with a small line drawn on one shared scale for all players.'],
+    ['consistency', 'Consistency (SD)', 'Population standard deviation of the player\u2019s game scores: how far games typically sit from the player\u2019s own average. Lower = steadier. With only ' + NR + ' games it is a rough guide.']
   ];
   function cell(key, b) {
     var s = b.stats;
@@ -281,6 +400,8 @@
       case 'spareConv': return pc(s.spareConv) + frac(s.spareFrames, s.spareChances);
       case 'cleanPct': return pc(s.cleanPct) + frac(s.cleanFrames, s.frames);
       case 'firstBallAvg': return f1(s.firstBallAvg);
+      case 'trend': return '<span class="trend">' + sparkline(b.scores) + ' <span class="muted small">' + esc(seq(b.scores)) + '</span></span>';
+      case 'consistency': return b.consistency === null || b.consistency === undefined ? '–' : f1(b.consistency);
       case 'impr': return b.improvement === null ? '–' : '<span class="delta ' + (b.improvement > 0 ? 'up' : b.improvement < 0 ? 'down' : '') + '">' + sgn(b.improvement) + '</span>';
     }
   }
@@ -294,9 +415,9 @@
   function renderStats() {
     var list = board.slice().sort(function (a, b) { return playerIdx(a.player) - playerIdx(b.player); });
     var ev = { player: 'Everyone', stats: event.stats, improvement: null };
-    $('stats').innerHTML = '<h2>Player stats</h2><p class="lede">Each player, both games combined (20 frames). Hover a column title for its definition, or see the glossary below. All frame-based percentages use frames 1–10 only.</p>' +
+    $('stats').innerHTML = '<h2>Player stats</h2><p class="lede">Each player, all ' + NR + ' games combined (' + FPP + ' frames). Hover a column title for its definition, or see the glossary below. All frame-based percentages use frames 1–10 only.</p>' +
       statsTable(list) +
-      '<h3>Whole field</h3><div class="table-wrap"><table class="data"><tbody><tr><td class="l">Everyone (16 games, 160 frames)</td>' + COLS.slice(0, 8).map(function (c) { return '<td><span class="muted small">' + c[1] + '</span><br>' + cell(c[0], ev) + '</td>'; }).join('') + '</tr></tbody></table></div>';
+      '<h3>Whole field</h3><div class="table-wrap"><table class="data"><tbody><tr><td class="l">Everyone (' + NGAMES + ' games, ' + (NGAMES * FPG) + ' frames)</td>' + COLS.slice(0, 8).map(function (c) { return '<td><span class="muted small">' + c[1] + '</span><br>' + cell(c[0], ev) + '</td>'; }).join('') + '</tr></tbody></table></div>';
   }
 
   function renderGlossary() {
@@ -305,10 +426,14 @@
       '<dt>Frame 10 rule</dt><dd>Strikes, spares and zero balls are counted on every ball thrown, including the up-to-two bonus balls of the 10th frame. Frame-based measures (strike %, spare conversion, opens, first ball, clean frames) look at frames 1–10 only, using the first ball of the 10th frame and its first two balls to decide strike, spare or open. A spare made on a 10th-frame bonus ball after a strike counts in Spares but not in spare conversion.</dd>' +
       '<dt>Frame score</dt><dd>Points a frame adds to the running total: pins plus the strike or spare bonus.</dd>' +
       '<dt>Best single frame</dt><dd>Largest frame score in any game, including strike and spare bonuses (max 30 in frames 1-9). Ties are all listed.</dd>' +
-      '<dt>Best first ball / Most strikes / Fewest zero balls</dt><dd>Compared across both games per player. Ties are all listed. 1st-ball avg is compared on the unrounded value.</dd>' +
+      '<dt>Best first ball / Most strikes / Fewest zero balls</dt><dd>Compared across all ' + NR + ' games per player. Ties are all listed. 1st-ball avg is compared on the unrounded value.</dd>' +
       '<dt>Lane and round averages</dt><dd>Mean score of all games bowled on that lane or in that round. Different players bowled each lane, so this is only a rough comparison.</dd>' +
-      '<dt>Percentages</dt><dd>Shown as a rounded percentage with the count behind it, e.g. 24% (4/17). With 20 frames per player, one frame moves strike % and clean % by 5 points, so treat small gaps as noise.</dd>' +
-      '<dt>Series</dt><dd>Sum of a player’s two games. Average = series / 2.</dd>' +
+      '<dt>Percentages</dt><dd>Shown as a rounded percentage with the count behind it, e.g. 24% (4/17). With ' + FPP + ' frames per player, one frame moves strike % and clean % by 5 points, so treat small gaps as noise.</dd>' +
+      '<dt>Series</dt><dd>Sum of a player’s ' + word(NR) + ' games. Average = series / ' + NR + '.</dd>' +
+      '<dt>Median</dt><dd>The middle game score when all scores are sorted (the mean of the two middle scores when the count is even).</dd>' +
+      '<dt>Standard deviation (SD)</dt><dd>Population standard deviation: the square root of the average squared distance of each score from the mean (divides by n). For a player it is the Consistency column; for the All games board it is taken over every game. Lower = steadier.</dd>' +
+      '<dt>Personal best (PB)</dt><dd>A player’s highest game score; ties mark every game with that score.</dd>' +
+      '<dt>Score distribution</dt><dd>Games counted in bins of 10 pins (for example 90–99).</dd>' +
       '<dt>Mark streak</dt><dd>Consecutive frames (1–10) each closed with a strike or spare.</dd>' +
       '<dt>Strike streak</dt><dd>Consecutive strike balls in one game, bonus balls included.</dd></dl>';
   }
@@ -325,20 +450,20 @@
     }).join('');
     var prow = rowsAll.filter(function (r) { return r.player === player; });
     var perFrame = {
-      cats: FR, yTitle: 'points', xTitle: 'frame', label: player + ' points per frame, game 1 versus game 2',
-      series: b.games.map(function (g) { return { label: player + ' game ' + g.round, color: g.round === 1 ? R1 : R2, values: g.stats.frameScores }; })
+      cats: FR, yTitle: 'points', xTitle: 'frame', label: player + ' points per frame, one series per game',
+      series: b.games.map(function (g) { return { label: player + ' game ' + g.round, color: rcol(g.round), values: g.stats.frameScores }; })
     };
     var kv = [
       ['Rank', (b.tied ? 'T' : '') + b.rank + ' of ' + board.length], ['Series', b.series], ['Average', f1(b.average)], ['Best game', b.best],
-      ['Round 1 → 2', b.improvement === null ? '–' : sgn(b.improvement) + ' pins']
+      ['Last − first', b.improvement === null ? '–' : sgn(b.improvement) + ' pins'], ['Trend', esc(seq(b.scores))], ['Consistency (SD)', f1(b.consistency)]
     ].concat(COLS.slice(0, 8).map(function (c) { return [c[1], cell(c[0], b)]; }));
     el.innerHTML = '<div class="detail-head"><div><h2>' + esc(player) + '</h2><p class="muted">Player view · ' + b.games.map(function (g) { return 'game ' + g.round + ': ' + g.total; }).join(' · ') + '</p></div><button type="button" class="btn" data-close="1">Close ✕</button></div>' +
       '<div class="kv">' + kv.map(function (x) { return '<div><b>' + x[1] + '</b><span>' + x[0] + '</span></div>'; }).join('') + '</div>' +
       cards +
       '<div class="chart-grid">' +
-      '<figure class="chart"><figcaption>Running total</figcaption>' + lineHtml(player) + '</figure>' +
+      '<figure class="chart"><figcaption>Running total</figcaption>' + lineHtml('player:' + player) + '</figure>' +
       '<figure class="chart"><figcaption>Points per frame</figcaption><div class="cap">Frame score including strike and spare bonuses.</div>' + legend(perFrame.series.map(function (x) { return { label: x.label, color: x.color }; })) + colChart(perFrame) + '</figure>' +
-      '<figure class="chart"><figcaption>First-ball pins</figcaption><div class="cap">Both games, 20 frames.</div>' + histHtml(prow, player) + '</figure>' +
+      '<figure class="chart"><figcaption>First-ball pins</figcaption><div class="cap">All ' + NR + ' games, ' + FPP + ' frames.</div>' + histHtml(prow, player) + '</figure>' +
       '</div>';
     el.hidden = false;
   }
@@ -359,6 +484,6 @@
   });
   window.addEventListener('hashchange', function () { route(/^#player=/.test(location.hash)); });
 
-  renderHeader(); renderLeaderboard(); renderHighlights(); renderScorecards(); renderCharts(); renderStats(); renderGlossary();
+  renderHeader(); renderLeaderboard(); renderAllGames(); renderHighlights(); renderScorecards(); renderCharts(); renderStats(); renderGlossary();
   route(false);
 })();

@@ -1,4 +1,4 @@
-// Transcribed from the four scoreboard photos. Frames are written exactly as shown on screen:
+// Transcribed from the six scoreboard photos. Frames are written exactly as shown on screen:
 // "X" = strike, "/" = spare, "-" = miss (0). Frame 10 may hold 3 balls.
 // `shown` is the running total printed under each frame and `total` the final score on the board;
 // the app recomputes scores from the balls and must reproduce these numbers exactly.
@@ -40,6 +40,24 @@ window.BOWLING_DATA = {
         { player: "Rabeya",  frames: ["-6","-3","-9","--","61","61","8-","72","9-","-8"], shown: [6,9,18,18,25,32,40,49,58,66], total: 66 },
         { player: "Lola",    frames: ["9-","7-","-4","52","-6","45","16","1-","3-","7-"],  shown: [9,16,20,27,33,42,49,50,53,60], total: 60 },
         { player: "Antonio", frames: ["--","--","18","18","-5","7-","8-","7-","-3","81"],  shown: [0,0,9,18,23,30,38,45,48,57], total: 57 }
+      ]
+    },
+    {
+      id: "R3-L25", round: 3, lane: 25, photo: "IMG_3702", laneTotal: 268,
+      rows: [
+        { player: "Simon",   frames: ["18","72","6-","6-","72","6-","52","33","9/","63"],  shown: [9,18,24,30,39,45,52,58,74,83], total: 83 },
+        { player: "Rabeya",  frames: ["7-","33","-6","3-","1-","7-","-6","3-","--","--"],  shown: [7,13,19,22,23,30,36,39,39,39], total: 39 },
+        { player: "Niclas",  frames: ["7-","6/","7-","7-","3-","--","--","3-","-1","13"],  shown: [7,24,31,38,41,41,41,44,45,49], total: 49 },
+        { player: "Yannic",  frames: ["-8","9-","61","5-","X","-8","X","8-","-8","53"],    shown: [8,17,24,29,47,55,73,81,89,97], total: 97 }
+      ]
+    },
+    {
+      id: "R3-L26", round: 3, lane: 26, photo: "IMG_3703", laneTotal: 320,
+      rows: [
+        { player: "Sergio",  frames: ["81","18","9-","9-","7-","7/","6-","6/","13","9/5"], shown: [9,18,27,36,43,59,65,76,80,95], total: 95 },
+        { player: "Dominik", frames: ["7-","-8","1-","-7","71","8-","7-","-2","-7","9-"],  shown: [7,15,16,23,31,39,46,48,55,64], total: 64 },
+        { player: "Lola",    frames: ["7-","9-","81","X","81","35","71","1-","-1","9/7"],  shown: [7,16,25,44,53,61,69,70,71,88], total: 88 },
+        { player: "Antonio", frames: ["61","7-","--","61","7-","7-","5/","6-","8-","8-"],  shown: [7,14,14,21,28,35,51,57,65,73], total: 73 }
       ]
     }
   ]

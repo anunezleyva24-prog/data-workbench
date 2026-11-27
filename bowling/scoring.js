@@ -186,20 +186,36 @@
     return out;
   }
 
+  function mean(list) { return list.length ? list.reduce(function (a, b) { return a + b; }, 0) / list.length : null; }
+  // Population standard deviation (divides by n, not n - 1).
+  function stdev(list) {
+    if (!list.length) return null;
+    var m = mean(list);
+    return Math.sqrt(mean(list.map(function (v) { return (v - m) * (v - m); })));
+  }
+  function median(list) {
+    if (!list.length) return null;
+    var a = list.slice().sort(function (x, y) { return x - y; }), n = a.length;
+    return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+  }
+  function roundCount(data) { return Math.max.apply(null, [0].concat(data.games.map(function (g) { return g.round; }))); }
+
   function playerSummary(data, player) {
     var games = playerGames(data, player);
     var scores = games.map(function (g) { return g.total; });
     var series = scores.reduce(function (a, b) { return a + b; }, 0);
     var agg = aggregate(games.map(function (g) { return g.stats; }));
-    var r1 = games.filter(function (g) { return g.round === 1; })[0];
-    var r2 = games.filter(function (g) { return g.round === 2; })[0];
+    var first = games[0], last = games[games.length - 1];
+    var canCompare = games.length >= 2;
     return {
       player: player, games: games, scores: scores, series: series,
       average: games.length ? series / games.length : null,
       best: Math.max.apply(null, scores),
       stats: agg,
-      improvement: (r1 && r2) ? r2.total - r1.total : null,
-      improvementPct: (r1 && r2 && r1.total) ? (r2.total - r1.total) / r1.total * 100 : null
+      // Last game minus first game (final round minus round 1), in pins.
+      improvement: canCompare ? last.total - first.total : null,
+      improvementPct: (canCompare && first.total) ? (last.total - first.total) / first.total * 100 : null,
+      consistency: stdev(scores)
     };
   }
 
@@ -246,6 +262,18 @@
     return h;
   }
 
+  // Histogram of game scores in bins of `size` pins (30-39, 40-49, ...), covering min..max.
+  function scoreHistogram(scores, size) {
+    size = size || 10;
+    if (!scores.length) return [];
+    var lo = Math.floor(Math.min.apply(null, scores) / size) * size;
+    var hi = Math.floor(Math.max.apply(null, scores) / size) * size;
+    var bins = [];
+    for (var s = lo; s <= hi; s += size) bins.push({ from: s, to: s + size - 1, count: 0 });
+    scores.forEach(function (v) { bins[Math.floor((v - lo) / size)].count++; });
+    return bins;
+  }
+
   // Average points scored by frame number (index 0 = frame 1) over the given rows.
   function frameAverages(rows) {
     var sums = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -258,7 +286,7 @@
     list.forEach(function (x) { var v = fn(x); if (v > m) m = v; });
     return { value: m, items: list.filter(function (x) { return fn(x) === m; }) };
   }
-  function avg(list) { return list.length ? list.reduce(function (a, b) { return a + b; }, 0) / list.length : null; }
+  var avg = mean;
 
   function eventSummary(data) {
     var rows = allRows(data);
@@ -267,10 +295,10 @@
     var lo = maxBy(rows, function (r) { return -r.total; });
     var agg = aggregate(rows.map(function (r) { return r.stats; }));
     return {
-      players: data.players.length, games: rows.length, rounds: Math.max.apply(null, data.games.map(function (g) { return g.round; })),
+      players: data.players.length, games: rows.length, rounds: roundCount(data),
       lanes: data.games.map(function (g) { return g.lane; }).filter(function (l, i, a) { return a.indexOf(l) === i; }).sort(),
       totalPins: totals.reduce(function (a, b) { return a + b; }, 0),
-      average: avg(totals), highest: hi.items, highestScore: hi.value,
+      average: avg(totals), median: median(totals), sd: stdev(totals), highest: hi.items, highestScore: hi.value,
       lowest: lo.items, lowestScore: -lo.value, stats: agg
     };
   }
@@ -279,6 +307,7 @@
     var rows = allRows(data), frames = allFrames(data), board = leaderboard(data);
     var bestFrame = maxBy(frames, function (f) { return f.score; });
     var improved = maxBy(board.filter(function (b) { return b.improvement !== null; }), function (b) { return b.improvement; });
+    var steady = maxBy(board, function (b) { return -Math.round(b.consistency * 1000); });
     var strikes = maxBy(board, function (b) { return b.stats.strikes; });
     var strikeStreak = maxBy(rows, function (r) { return r.stats.strikeStreak; });
     var markStreak = maxBy(rows, function (r) { return r.stats.markStreak; });
@@ -298,11 +327,11 @@
       var o = groupAvg(function (r) { return r.lane === Number(l); }); o.lane = Number(l); return o;
     });
     var roundStats = [];
-    for (var n = 1; n <= Math.max.apply(null, data.games.map(function (g) { return g.round; })); n++) {
+    for (var n = 1; n <= roundCount(data); n++) {
       var o = groupAvg(function (r) { return r.round === n; }); o.round = n; roundStats.push(o);
     }
     return {
-      bestFrame: bestFrame, mostImproved: improved, mostStrikes: strikes,
+      bestFrame: bestFrame, mostImproved: improved, mostConsistent: steady, mostStrikes: strikes,
       strikeStreak: strikeStreak, markStreak: markStreak, bestFirstBall: firstBall, fewestZero: fewestZero,
       lanes: laneStats, rounds: roundStats
     };
@@ -310,7 +339,8 @@
 
   /* Re-score every scoreboard and compare with the printed numbers. */
   function verifyData(data) {
-    var mismatches = [], checked = 0, cardsOk = 0;
+    var mismatches = [], checked = 0, cardsOk = 0, runningTotals = 0, laneTotals = 0;
+    var rounds = roundCount(data);
     var perPlayer = {};
     data.games.forEach(function (g) {
       var laneSum = 0;
@@ -331,22 +361,26 @@
         if (sc.total !== r.total) mismatches.push(tag + ': computed total ' + sc.total + ' but board total is ' + r.total);
         if (r.shown && r.shown[FRAMES - 1] !== r.total) mismatches.push(tag + ': last running total ' + r.shown[FRAMES - 1] + ' differs from total ' + r.total);
         laneSum += sc.total;
+        if (mismatches.length === before) runningTotals += sc.running.length;
         perPlayer[r.player] = (perPlayer[r.player] || 0) + 1;
         if (mismatches.length === before) cardsOk++;
       });
+      laneTotals++;
       if (laneSum !== g.laneTotal) mismatches.push(g.id + ': lane total computed ' + laneSum + ' but board shows ' + g.laneTotal);
     });
     data.players.forEach(function (p) {
-      if (perPlayer[p] !== 2) mismatches.push(p + ' has ' + (perPlayer[p] || 0) + ' games, expected 2');
+      if (perPlayer[p] !== rounds) mismatches.push(p + ' has ' + (perPlayer[p] || 0) + ' games, expected ' + rounds + ' (one per round)');
     });
-    return { ok: mismatches.length === 0, checked: checked, cardsOk: cardsOk, mismatches: mismatches };
+    return { ok: mismatches.length === 0, checked: checked, cardsOk: cardsOk, rounds: rounds,
+      runningTotals: runningTotals, laneTotals: laneTotals, mismatches: mismatches };
   }
 
   var api = {
     parseFrame: parseFrame, parseGame: parseGame, scoreGame: scoreGame, gameStats: gameStats,
     aggregate: aggregate, playerGames: playerGames, playerSummary: playerSummary, leaderboard: leaderboard,
     allRows: allRows, allFrames: allFrames, firstBallHistogram: firstBallHistogram,
-    frameAverages: frameAverages, eventSummary: eventSummary, highlights: highlights, verifyData: verifyData
+    frameAverages: frameAverages, mean: mean, median: median, stdev: stdev, roundCount: roundCount,
+    scoreHistogram: scoreHistogram, eventSummary: eventSummary, highlights: highlights, verifyData: verifyData
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.BowlingScoring = api;

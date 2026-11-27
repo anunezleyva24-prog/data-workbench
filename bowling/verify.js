@@ -22,10 +22,11 @@ data.games.forEach(g => {
 });
 
 console.log('');
-if (res.ok && lines === 16) {
-  console.log('PASS: all ' + res.cardsOk + ' of ' + res.checked + ' scorecards (160 running totals, 16 totals, 4 lane totals) match the scoreboards.');
+const expectedCards = data.players.length * res.rounds;
+if (res.ok && lines === expectedCards) {
+  console.log('PASS: all ' + res.cardsOk + ' of ' + res.checked + ' scorecards (' + res.runningTotals + ' running totals, ' + res.checked + ' totals, ' + res.laneTotals + ' lane totals) match the scoreboards.');
   process.exit(0);
 }
-console.log('FAIL: ' + res.mismatches.length + ' mismatch(es)' + (lines !== 16 ? ' (expected 16 scorecards, found ' + lines + ')' : '') + ':');
+console.log('FAIL: ' + res.mismatches.length + ' mismatch(es)' + (lines !== expectedCards ? ' (expected ' + expectedCards + ' scorecards, found ' + lines + ')' : '') + ':');
 res.mismatches.forEach(m => console.log('  - ' + m));
 process.exit(1);

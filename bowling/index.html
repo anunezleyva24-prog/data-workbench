@@ -15,6 +15,7 @@
     <div id="badge" class="badge" role="status"></div>
     <nav class="nav" aria-label="Sections">
       <a href="#leaderboard">Leaderboard</a>
+      <a href="#allgames">All games</a>
       <a href="#highlights">Highlights</a>
       <a href="#scorecards">Scorecards</a>
       <a href="#charts">Charts</a>
@@ -28,6 +29,7 @@
   <section id="summary" aria-label="Event summary"></section>
   <section id="detail" class="panel detail" hidden aria-live="polite"></section>
   <section id="leaderboard" class="panel"></section>
+  <section id="allgames" class="panel"></section>
   <section id="highlights" class="panel"></section>
   <section id="scorecards" class="panel"></section>
   <section id="charts" class="panel"></section>
@@ -35,7 +37,7 @@
   <section id="glossary" class="panel"></section>
 </main>
 
-<footer class="wrap foot">All numbers are computed in your browser from the individual balls transcribed from four scoreboard photos.</footer>
+<footer class="wrap foot" id="foot"></footer>
 <noscript><p class="wrap">This page needs JavaScript to compute and draw the statistics.</p></noscript>
 
 <script src="data.js"></script>
